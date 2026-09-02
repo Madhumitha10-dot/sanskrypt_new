@@ -1,0 +1,128 @@
+# ==============================================================================
+# SansKrypt / Major Project .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. SENSITIVE / PRIVATE CREDENTIALS & SECRETS
+# Why: .env files contain private API keys (e.g. GEMINI_API_KEY, SECRET_KEY)
+# and secrets. Committing these to a public/private GitHub repo exposes keys to abuse.
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+*.cert
+
+# ------------------------------------------------------------------------------
+# 2. MACHINE LEARNING MODELS & LARGE BINARIES (>100MB GitHub limit)
+# Why: Fine-tuned model checkpoints (such as models/sanskrypt_translator/pytorch_model.bin)
+# exceed 300+ MB. GitHub rejects single file pushes > 100 MB and has repo limits.
+# Model weights should be stored via Git LFS, Hugging Face Hub, or trained locally.
+# ------------------------------------------------------------------------------
+models/
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.h5
+*.tflite
+*.ckpt
+
+# ------------------------------------------------------------------------------
+# 3. USER UPLOADS & RUNTIME GENERATED FILES
+# Why: Uploaded manuscript images and preprocessed images are dynamic runtime
+# data and can be private. Keeping them out prevents bloating repo size.
+# ------------------------------------------------------------------------------
+uploads/original/*
+uploads/processed/*
+!uploads/original/.gitkeep
+!uploads/processed/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 4. RUNTIME DATABASES & LOCAL STORAGE
+# Why: SQLite database files (*.db, *.sqlite, *.sqlite3) store runtime data,
+# user records, and binary state. Committing databases leads to merge conflicts
+# and may leak user-submitted manuscripts or personal metadata.
+# ------------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+sanskrypt.db
+
+# ------------------------------------------------------------------------------
+# 5. PYTHON BYTECODE & COMPILATION CACHES
+# Why: Compiled Python files (.pyc, __pycache__) are platform-dependent artifacts
+# generated automatically at runtime and should not be tracked by version control.
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ------------------------------------------------------------------------------
+# 6. TESTING, COVERAGE & LINTING CACHES
+# Why: Pytest and coverage caches are temporary local performance caches.
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+htmlcov/
+
+# ------------------------------------------------------------------------------
+# 7. VIRTUAL ENVIRONMENTS
+# Why: Virtual environments contain hundreds of MBs of third-party dependencies
+# specific to your local OS/Python setup. Dependencies should be installed from
+# requirements.txt instead.
+# ------------------------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# 8. LEGACY / NESTED SUB-REPOSITORIES
+# Why: The nested SansKrypt/ folder has its own .git and outdated prototype code.
+# Ignoring it prevents Git submodule conflicts and redundant files during push.
+# ------------------------------------------------------------------------------
+SansKrypt/
+
+# ------------------------------------------------------------------------------
+# 9. IDE, EDITOR & OS METADATA
+# Why: System-generated hidden files and IDE workspace settings differ per developer.
+# ------------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

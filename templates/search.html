@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Search Sanskrit Knowledge Repository &mdash; SansKrypt{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card glass-card p-4 mb-4">
+                <h3 class="fw-bold text-dark mb-2 d-flex align-items-center">
+                    <i class="bi bi-search text-warning me-2"></i> Search Sanskrit Repository
+                </h3>
+                <p class="text-muted small mb-4">
+                    Explore digitized manuscripts across philosophical traditions, medical treatises (Ayurveda), mathematical treatises, astronomical observations, and poetic literature.
+                </p>
+
+                <form action="{{ url_for('search_query') }}" method="GET">
+                    <!-- Free text search -->
+                    <div class="mb-3">
+                        <label for="query" class="form-label text-muted small fw-semibold">FULL-TEXT SEARCH QUERY</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-warning border"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control form-control-lg" id="query" name="query" placeholder="Search by Sanskrit terms, English translation, concepts, or title...">
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <!-- Specific Keyword Filter -->
+                        <div class="col-md-6">
+                            <label for="keyword" class="form-label text-muted small fw-semibold">SPECIFIC KEYWORD</label>
+                            <input type="text" class="form-control" id="keyword" name="keyword" placeholder="e.g., Atman, Dosha, Graha, Algebra">
+                        </div>
+
+                        <!-- Classification Domain Filter -->
+                        <div class="col-md-6">
+                            <label for="classification" class="form-label text-muted small fw-semibold">KNOWLEDGE CLASSIFICATION</label>
+                            <select class="form-select" id="classification" name="classification">
+                                <option value="all" selected>All Classifications</option>
+                                {% for category in categories %}
+                                <option value="{{ category }}">{{ category }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        <!-- Status Filter (Required for low-confidence review) -->
+                        <div class="col-md-6">
+                            <label for="status" class="form-label text-muted small fw-semibold">SCAN STATUS FILTER</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="all" selected>All Statuses</option>
+                                <option value="completed">Completed (High Confidence &ge; 40%)</option>
+                                <option value="low_confidence">Low Confidence (< 40% &mdash; Review Needed)</option>
+                            </select>
+                        </div>
+
+                        <!-- Min Confidence -->
+                        <div class="col-md-6">
+                            <label for="min_confidence" class="form-label text-muted small fw-semibold">MINIMUM OCR CONFIDENCE (%)</label>
+                            <input type="number" class="form-control" id="min_confidence" name="min_confidence" min="0" max="100" placeholder="e.g. 50">
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-sanskrypt btn-lg">
+                            <i class="bi bi-funnel me-1"></i> Search Repository
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Quick Browse Categories -->
+            <div class="card glass-card p-4">
+                <h5 class="fw-bold text-dark mb-3"><i class="bi bi-grid-3x3-gap text-warning me-2"></i> Browse by Knowledge Domain</h5>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for cat in categories %}
+                    <a href="{{ url_for('search_query', classification=cat) }}" class="btn btn-sm btn-outline-sanskrypt">
+                        {{ cat }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

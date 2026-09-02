@@ -1,0 +1,293 @@
+:root {
+  --primary-gold: #c88a2c;
+  --primary-gold-light: #e6a747;
+  --primary-gold-dark: #a16812;
+  --saffron: #d9621b;
+  --saffron-light: #ea7935;
+  --saffron-dark: #b8470a;
+  --bg-page: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-parchment: #fdfbf7;
+  --text-main: #0f172a;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --border-warm: #ebdcc9;
+  --border-glow: #d97706;
+  --success-bg: #dcfce7;
+  --success-text: #15803d;
+  --success-border: #bbf7d0;
+  --warning-bg: #fffbeb;
+  --warning-text: #b45309;
+  --warning-border: #fde68a;
+  --danger-bg: #fef2f2;
+  --danger-text: #b91c1c;
+  --danger-border: #fecaca;
+  --font-heading: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-sanskrit: 'Tiro Devanagari Sanskrit', 'Noto Sans Devanagari', serif;
+}
+
+body {
+  background: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(245, 235, 220, 0.6) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(240, 244, 248, 0.8) 0px, transparent 50%);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Navbar */
+.navbar-sanskrypt {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.brand-logo {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 1.5rem;
+  background: linear-gradient(135deg, #a16812 0%, #d9621b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-link {
+  color: #475569 !important;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  padding: 0.5rem 1rem !important;
+  border-radius: 6px;
+}
+
+.nav-link:hover, .nav-link.active {
+  color: #b8470a !important;
+  background: #fef3c7;
+}
+
+/* Cards & Surface Containers */
+.glass-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.glass-card:hover {
+  border-color: #cbd5e1;
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(217, 119, 6, 0.12);
+  border-color: #fcd34d;
+}
+
+/* Sanskrit Typography */
+.sanskrit-text {
+  font-family: var(--font-sanskrit);
+  font-size: 1.35rem;
+  line-height: 1.9;
+  letter-spacing: 0.02em;
+  color: #2b1d0c;
+}
+
+.parchment-box {
+  background: #fffcf7;
+  color: #2b1d0c;
+  border: 1px solid var(--border-warm);
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.02);
+}
+
+.parchment-box .sanskrit-text {
+  color: #3d2310;
+}
+
+/* Upload Dropzone */
+.dropzone-box {
+  border: 2px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.dropzone-box:hover, .dropzone-box.dragover {
+  border-color: var(--primary-gold);
+  background: #fffbeb;
+  transform: scale(1.005);
+}
+
+.dropzone-icon {
+  font-size: 3rem;
+  color: var(--primary-gold);
+  margin-bottom: 0.75rem;
+}
+
+/* Custom Buttons */
+.btn-sanskrypt {
+  background: linear-gradient(135deg, #d97706 0%, #ea580c 100%);
+  color: #ffffff;
+  font-weight: 600;
+  border: none;
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  box-shadow: 0 3px 12px rgba(217, 119, 6, 0.25);
+  transition: all 0.25s ease;
+}
+
+.btn-sanskrypt:hover {
+  color: #ffffff;
+  background: linear-gradient(135deg, #b45309 0%, #c2410c 100%);
+  box-shadow: 0 5px 16px rgba(217, 119, 6, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-outline-sanskrypt {
+  border: 1px solid #d97706;
+  color: #b45309;
+  background: #ffffff;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-outline-sanskrypt:hover {
+  background: #fef3c7;
+  color: #78350f;
+  border-color: #b45309;
+}
+
+/* Badges */
+.badge-category {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+}
+
+.badge-confidence-high {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  font-weight: 600;
+}
+
+.badge-confidence-low {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  font-weight: 600;
+}
+
+.badge-confidence-mid {
+  background: #fef9c3;
+  color: #854d0e;
+  border: 1px solid #fef08a;
+  font-weight: 600;
+}
+
+/* Low confidence alert banner */
+.alert-low-confidence {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #78350f;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+/* Keyword tags */
+.keyword-pill {
+  display: inline-block;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  padding: 0.3rem 0.75rem;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  margin: 0.2rem;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.keyword-pill:hover {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+  transform: translateY(-1px);
+}
+
+/* Image preview containers */
+.manuscript-img-box {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  max-height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manuscript-img-box img {
+  max-height: 420px;
+  width: 100%;
+  object-fit: contain;
+  transition: transform 0.3s ease;
+}
+
+.manuscript-img-box:hover img {
+  transform: scale(1.02);
+}
+
+/* Form Controls in Light Theme */
+.form-control, .form-select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 0.25rem rgba(245, 158, 11, 0.2) !important;
+}
+
+.form-control::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Loading Overlay */
+#processing-spinner {
+  display: none;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

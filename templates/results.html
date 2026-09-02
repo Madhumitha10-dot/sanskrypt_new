@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}{{ manuscript.title or 'Manuscript #' ~ manuscript.id }} &mdash; SansKrypt{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb & Actions -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-warning text-decoration-none fw-semibold">Home</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('list_repository') }}" class="text-warning text-decoration-none fw-semibold">Repository</a></li>
+                <li class="breadcrumb-item active text-dark" aria-current="page">{{ manuscript.title or 'Manuscript #' ~ manuscript.id }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-sanskrypt">
+                <i class="bi bi-cloud-arrow-up me-1"></i> Upload Another
+            </a>
+            <form action="{{ url_for('delete_manuscript_route', manuscript_id=manuscript.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this manuscript entry?');" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Title & Metadata Header -->
+    <div class="card glass-card p-4 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <h2 class="h3 fw-bold text-dark mb-1">{{ manuscript.title or 'Manuscript Artifact #' ~ manuscript.id }}</h2>
+                <div class="text-muted small d-flex flex-wrap align-items-center gap-3 mt-2">
+                    <span><i class="bi bi-calendar3 me-1"></i> Uploaded: {{ manuscript.upload_date.strftime('%B %d, %Y at %I:%M %p') }}</span>
+                    <span><i class="bi bi-tag me-1"></i> Domain: <span class="badge badge-category">{{ manuscript.classification }}</span></span>
+                    <span>
+                        <i class="bi bi-shield-check me-1"></i> Status:
+                        {% if manuscript.status == 'low_confidence' %}
+                        <span class="badge badge-confidence-low">Low Confidence</span>
+                        {% else %}
+                        <span class="badge badge-confidence-high">Completed</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            <div>
+                <div class="text-end">
+                    <div class="text-muted small">OCR Confidence Score</div>
+                    <div class="fs-4 fw-bold {% if manuscript.status == 'low_confidence' %}text-danger{% elif manuscript.ocr_confidence >= 70 %}text-success{% else %}text-warning{% endif %}">
+                        {{ manuscript.ocr_confidence|round(1) }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Low Confidence Warning Banner (Required) -->
+    {% if manuscript.status == 'low_confidence' %}
+    <div class="alert alert-low-confidence shadow-sm mb-4 d-flex align-items-start" role="alert">
+        <i class="bi bi-exclamation-triangle-fill fs-4 text-warning me-3 mt-1"></i>
+        <div>
+            <h5 class="alert-heading fw-bold mb-1">Low Confidence OCR Scan Detected</h5>
+            <p class="mb-0">
+                OCR confidence was low for this image (<strong>{{ manuscript.ocr_confidence|round(1) }}%</strong>).
+                The extracted text, translation, and explanation below may be inaccurate &mdash; verify against the original manuscript before relying on them.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Main Content Layout -->
+    <div class="row g-4">
+        <!-- Left Column: Manuscript Images (Original vs Processed) -->
+        <div class="col-lg-5">
+            <div class="card glass-card p-3 mb-4 sticky-top" style="top: 80px; z-index: 10;">
+                <h5 class="fw-bold text-dark mb-3 d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-image text-warning me-2"></i> Manuscript Visuals</span>
+                    <ul class="nav nav-pills nav-pills-sm" id="imageTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active py-1 px-2 small" id="original-tab" data-bs-toggle="pill" data-bs-target="#original-pane" type="button" role="tab">Original</button>
+                        </li>
+                        {% if manuscript.processed_image_path %}
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2 small" id="processed-tab" data-bs-toggle="pill" data-bs-target="#processed-pane" type="button" role="tab">Enhanced (OpenCV)</button>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </h5>
+
+                <div class="tab-content" id="imageTabsContent">
+                    <div class="tab-pane fade show active" id="original-pane" role="tabpanel">
+                        <div class="manuscript-img-box">
+                            <img src="{{ url_for('manuscript_image', manuscript_id=manuscript.id, img_type='original') }}" alt="Original Manuscript" class="img-fluid rounded border shadow-sm">
+                        </div>
+                        <p class="text-muted small text-center mt-2 mb-0"><i class="bi bi-file-earmark-image me-1"></i> Raw scanned manuscript artifact</p>
+                    </div>
+
+                    {% if manuscript.processed_image_path %}
+                    <div class="tab-pane fade" id="processed-pane" role="tabpanel">
+                        <div class="manuscript-img-box">
+                            <img src="{{ url_for('manuscript_image', manuscript_id=manuscript.id, img_type='processed') }}" alt="Preprocessed Manuscript" class="img-fluid rounded border shadow-sm">
+                        </div>
+                        <p class="text-muted small text-center mt-2 mb-0"><i class="bi bi-magic me-1 text-warning"></i> Denoised, CLAHE normalized & enhanced via OpenCV</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: OCR Text, Translation, Explanation, Keywords -->
+        <div class="col-lg-7">
+            <!-- 1. Sanskrit OCR Text -->
+            <div class="card glass-card p-4 mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-dark mb-0 d-flex align-items-center">
+                        <i class="bi bi-file-earmark-font text-warning me-2"></i> Extracted Sanskrit Text (OCR)
+                        <span class="ms-2 badge {% if manuscript.status == 'low_confidence' %}badge-confidence-low{% elif manuscript.ocr_confidence >= 70 %}badge-confidence-high{% else %}badge-confidence-mid{% endif %} small">
+                            {{ manuscript.ocr_confidence|round(1) }}% Confidence
+                        </span>
+                    </h5>
+                    <button class="btn btn-sm btn-outline-secondary btn-copy" data-target="ocr-text-content" title="Copy Sanskrit Text">
+                        <i class="bi bi-clipboard me-1"></i> Copy
+                    </button>
+                </div>
+                <div class="parchment-box">
+                    <div id="ocr-text-content" class="sanskrit-text" style="white-space: pre-wrap;">{{ manuscript.ocr_text }}</div>
+                </div>
+            </div>
+
+            <!-- 2. English Translation -->
+            <div class="card glass-card p-4 mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-dark mb-0 d-flex align-items-center">
+                        <i class="bi bi-translate text-warning me-2"></i> English Translation
+                    </h5>
+                    <button class="btn btn-sm btn-outline-secondary btn-copy" data-target="translation-content" title="Copy Translation">
+                        <i class="bi bi-clipboard me-1"></i> Copy
+                    </button>
+                </div>
+                <div class="p-3 rounded bg-light border">
+                    <div id="translation-content" class="text-dark fs-6 lh-base" style="white-space: pre-wrap;">{{ manuscript.translated_text }}</div>
+                </div>
+            </div>
+
+            <!-- 3. Contextual Explanation -->
+            <div class="card glass-card p-4 mb-4">
+                <h5 class="fw-bold text-dark mb-3 d-flex align-items-center">
+                    <i class="bi bi-lightbulb text-warning me-2"></i> Plain-English Context & Explanation
+                </h5>
+                <div class="p-3 rounded bg-light border text-body lh-base">
+                    {{ manuscript.explanation }}
+                </div>
+            </div>
+
+            <!-- 4. Keywords & Domain Classification -->
+            <div class="card glass-card p-4">
+                <h5 class="fw-bold text-dark mb-3 d-flex align-items-center">
+                    <i class="bi bi-tags text-warning me-2"></i> Knowledge Domain & Keywords
+                </h5>
+                <div class="mb-3">
+                    <span class="text-muted small d-block mb-2">CLASSIFICATION:</span>
+                    <a href="{{ url_for('search_query', classification=manuscript.classification) }}" class="badge badge-category fs-6 text-decoration-none">
+                        <i class="bi bi-journal-bookmark me-1"></i> {{ manuscript.classification }}
+                    </a>
+                </div>
+
+                <div>
+                    <span class="text-muted small d-block mb-2">EXTRACTED KEYWORDS:</span>
+                    <div class="d-flex flex-wrap">
+                        {% if manuscript.keywords %}
+                            {% for kw in manuscript.keywords.split(',') %}
+                                {% if kw.strip() %}
+                                    <a href="{{ url_for('search_query', keyword=kw.strip()) }}" class="keyword-pill">
+                                        <i class="bi bi-hash text-warning"></i>{{ kw.strip() }}
+                                    </a>
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            <span class="text-muted small">No explicit keywords extracted.</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

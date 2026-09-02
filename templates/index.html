@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Digitize Manuscript &mdash; SansKrypt{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Hero Header -->
+    <div class="row justify-content-center text-center mb-4">
+        <div class="col-lg-8">
+            <h1 class="display-6 fw-bold mb-2 text-dark" style="font-family: var(--font-heading);">
+                <span style="color: #d97706;">SansKrypt:</span> Manuscript Digitization & Translation
+            </h1>
+            <p class="text-muted">
+                Transform ancient Sanskrit palm-leaf and paper manuscript images into high-fidelity Devanagari text, English translations, contextual explanations, and searchable knowledge domains.
+            </p>
+        </div>
+    </div>
+
+    <div class="row g-4 justify-content-center">
+        <!-- Upload Card -->
+        <div class="col-lg-7">
+            <div class="card glass-card p-4">
+                <h4 class="card-title fw-bold mb-3 d-flex align-items-center text-dark">
+                    <i class="bi bi-file-earmark-arrow-up me-2" style="color: #d97706;"></i> Upload Sanskrit Manuscript
+                </h4>
+
+                <form id="upload-form" action="{{ url_for('upload_manuscript') }}" method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="manuscript_title" class="form-label text-muted small fw-semibold">MANUSCRIPT TITLE (OPTIONAL)</label>
+                        <input type="text" class="form-control" id="manuscript_title" name="title" placeholder="e.g., Rigveda Mandala 1 Verse 1, Surya Siddhanta Chapter 3">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-semibold">MANUSCRIPT IMAGE FILE</label>
+                        <div id="dropzone" class="dropzone-box">
+                            <input type="file" id="manuscript_image" name="image" accept=".png,.jpg,.jpeg,.webp,.tiff,.bmp" class="d-none" required>
+                            <div id="upload-prompt">
+                                <i class="bi bi-cloud-arrow-up dropzone-icon"></i>
+                                <h5 class="fw-semibold text-dark mb-1">Click to browse or drag & drop image here</h5>
+                                <p class="text-muted small mb-0">Supported formats: PNG, JPG, JPEG, WEBP, TIFF, BMP (Max 16 MB)</p>
+                            </div>
+                            <div id="image-preview-container" class="d-none mt-2">
+                                <img id="preview-image" src="" alt="Selected Preview" class="img-fluid rounded border" style="max-height: 220px;">
+                                <p class="text-success small mt-2 mb-0 fw-semibold"><i class="bi bi-check2-circle"></i> Image selected. Ready to process.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pipeline Info Checklist -->
+                    <div class="p-3 mb-4 rounded bg-light border small">
+                        <div class="fw-semibold text-dark mb-2"><i class="bi bi-gear-wide-connected me-1 text-warning"></i> Automated Pipeline Stages:</div>
+                        <div class="row g-2 text-muted">
+                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> OpenCV Image Preprocessing</div>
+                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Neural Sanskrit OCR Extraction</div>
+                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Sanskrit &rarr; English Translation</div>
+                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Context Explanation & Domain Tagging</div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" id="submit-btn" class="btn btn-sanskrypt btn-lg">
+                            <i class="bi bi-lightning-charge me-1"></i> Digitize & Translate Manuscript
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Loading Spinner / Alert -->
+                <div id="processing-spinner" class="mt-4 text-center p-3 rounded bg-light border border-warning">
+                    <div class="spinner-border text-warning mb-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div class="fw-semibold text-dark">Executing AI Pipeline...</div>
+                    <div class="text-muted small">Enhancing image &rarr; Extracting Sanskrit OCR &rarr; Generating Translation & Classification</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar / Features & Recent -->
+        <div class="col-lg-5">
+            <!-- Pipeline Features -->
+            <div class="card glass-card p-4 mb-4">
+                <h5 class="fw-bold mb-3 text-dark">
+                    <i class="bi bi-stars me-2" style="color: #d97706;"></i> Intelligent OCR & Translation
+                </h5>
+                <ul class="list-unstyled mb-0 d-flex flex-column gap-3 small">
+                    <li class="d-flex">
+                        <i class="bi bi-sliders text-warning fs-5 me-3"></i>
+                        <div>
+                            <strong class="text-dark">OpenCV Enhancement</strong>
+                            <p class="text-muted mb-0">Applies bilateral filtering, contrast normalization (CLAHE), and adaptive binarization to clean aged palm leaves and paper.</p>
+                        </div>
+                    </li>
+                    <li class="d-flex">
+                        <i class="bi bi-speedometer2 text-warning fs-5 me-3"></i>
+                        <div>
+                            <strong class="text-dark">Word-Level Confidence Scoring</strong>
+                            <p class="text-muted mb-0">Analyzes pytesseract bounding boxes. Flags low-confidence scans (< 40%) with proactive review warnings.</p>
+                        </div>
+                    </li>
+                    <li class="d-flex">
+                        <i class="bi bi-diagram-3 text-warning fs-5 me-3"></i>
+                        <div>
+                            <strong class="text-dark">Domain Classification & Keywords</strong>
+                            <p class="text-muted mb-0">Categorizes texts into Philosophy, Ayurveda, Astronomy, Mathematics, Literature, and Vedic sciences.</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Recent Manuscripts -->
+            {% if recent_manuscripts %}
+            <div class="card glass-card p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clock-history me-2 text-warning"></i> Recent Manuscripts</h5>
+                    <a href="{{ url_for('list_repository') }}" class="btn btn-sm btn-outline-sanskrypt">View All</a>
+                </div>
+                <div class="list-group list-group-flush bg-transparent">
+                    {% for m in recent_manuscripts %}
+                    <a href="{{ url_for('view_manuscript', manuscript_id=m.id) }}" class="list-group-item list-group-item-action bg-transparent px-0 py-2 d-flex justify-content-between align-items-center">
+                        <div class="text-truncate me-2">
+                            <div class="fw-semibold text-dark text-truncate">{{ m.title or 'Manuscript #' ~ m.id }}</div>
+                            <small class="text-muted">{{ m.classification }} &bull; {{ m.upload_date.strftime('%b %d, %Y') }}</small>
+                        </div>
+                        <div>
+                            {% if m.status == 'low_confidence' %}
+                            <span class="badge badge-confidence-low">Low ({{ m.ocr_confidence|round(1) }}%)</span>
+                            {% else %}
+                            <span class="badge badge-confidence-high">{{ m.ocr_confidence|round(1) }}%</span>
+                            {% endif %}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
