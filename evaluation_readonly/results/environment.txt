@@ -1,0 +1,35 @@
+# SansKrypt Evaluation Environment Specifications
+
+## Hardware
+* CPU: AMD64 Family 23 Model 160 Stepping 0, AuthenticAMD
+* CPU Cores: 4 Physical Cores, 8 Logical Processors
+* RAM: 7.21 GB Total System RAM
+* GPU: None (CUDA available: False)
+* GPU VRAM: NOT AVAILABLE (No dedicated GPU / CPU-only execution)
+
+## Operating System
+* OS: Windows 10 / 11 (10.0.26200)
+* Platform: win32 (x86_64)
+
+## Runtime & Packages
+* Python: 3.11.5 (tags/v3.11.5:cce6ba9, Aug 24 2023, 14:38:34) [MSC v.1936 64 bit (AMD64)]
+* Flask: 2.1.3
+* Flask-SQLAlchemy: 3.1.1
+* SQLAlchemy: 2.0.52
+* opencv-python: 4.8.1.78
+* Pillow: 12.3.0
+* numpy: 1.26.4
+* pytesseract: 0.3.13
+* google-genai: 2.21.0
+* google-generativeai: NOT INSTALLED
+* deep-translator: 1.11.4
+* transformers: 4.30.0
+* torch: 2.13.0
+* sentencepiece: NOT INSTALLED
+* pytest: 9.1.1
+* pytest-mock: 3.15.1
+
+## OCR Engine & Models
+* Tesseract Version: 5.4.0.20240606
+* Sanskrit Traineddata: `san.traineddata` (tessdata / tessdata_fast)
+* Translation / NLP Fallback Model: `google/flan-t5-small` / local `models/sanskrypt_translator`

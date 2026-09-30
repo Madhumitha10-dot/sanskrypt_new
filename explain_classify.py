@@ -133,10 +133,10 @@ def generate_with_gemini(prompt: str) -> Optional[str]:
 
     candidate_models = [
         "gemini-flash-lite-latest",
-        "gemini-flash-latest",
         "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-lite",
         "gemini-3.8-flash",
-        "gemini-2.5-pro"
+        "gemini-flash-latest"
     ]
     try:
         client = genai.Client(api_key=api_key)

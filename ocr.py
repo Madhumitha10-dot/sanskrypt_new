@@ -131,7 +131,13 @@ def extract_with_gemini_vision(bgr_image: np.ndarray, api_key: Optional[str] = N
     if not key or not HAS_GENAI:
         return None
 
-    candidate_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    candidate_models = [
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest"
+    ]
     try:
         is_success, buffer = cv2.imencode(".jpg", bgr_image)
         if not is_success:
