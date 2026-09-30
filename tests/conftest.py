@@ -13,6 +13,16 @@ if not hasattr(werkzeug, "__version__"):
     except Exception:
         werkzeug.__version__ = "3.1.3"
 
+import flask.globals
+if not hasattr(flask.globals, "app_ctx") or flask.globals.app_ctx is None:
+    class _AppCtxProxy:
+        def _get_current_object(self):
+            top = getattr(flask.globals, "_app_ctx_stack", None)
+            if top is not None and top.top is not None:
+                return top.top
+            return self
+    flask.globals.app_ctx = _AppCtxProxy()
+
 from app import app as flask_app
 from database import db, Manuscript
 
