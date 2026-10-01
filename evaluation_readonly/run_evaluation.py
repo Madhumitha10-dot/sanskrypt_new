@@ -1,6 +1,6 @@
 """
-SansKrypt Read-Only Evaluation Suite
-Strictly executes existing SansKrypt modules in read-only mode, measuring:
+SansKrypt Read-Only Evaluation Suite (29-Sample Comprehensive Driver)
+Strictly executes existing SansKrypt modules in read-only mode across all 29 registered manuscript images:
 1. Dataset & image specs
 2. OCR single-pass (PSM 6, PSM 4, PSM 3) & preprocessing variants
 3. OCR multi-pass & Gemini Vision attempts
@@ -13,6 +13,10 @@ Strictly executes existing SansKrypt modules in read-only mode, measuring:
 """
 import os
 import sys
+import socket
+
+# Set safe socket timeout for all network requests (e.g. translation/gemini APIs)
+socket.setdefaulttimeout(15.0)
 
 # Ensure root workspace directory is in sys.path
 BASE_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,11 +27,12 @@ import glob
 import time
 import csv
 import json
+import sqlite3
+import hashlib
 import statistics
 from typing import Dict, List, Any
 import numpy as np
 from PIL import Image
-
 
 # Import existing application modules in read-only mode
 from preprocessing import (
@@ -66,48 +71,65 @@ RAW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "raw")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(RAW_DIR, exist_ok=True)
 
-def get_unique_samples() -> List[Dict[str, Any]]:
-    upload_orig = os.path.join("uploads", "original")
-    files = sorted(glob.glob(os.path.join(upload_orig, "*")))
-    files = [f for f in files if not f.endswith(".gitkeep")]
-    
-    unique_map = {}
-    for fpath in files:
+def get_all_29_samples() -> List[Dict[str, Any]]:
+    """
+    Loads all 29 registered manuscript image records from the SQLite database
+    in strict read-only mode and verifies their physical files.
+    """
+    db_path = os.path.join(BASE_PROJECT_DIR, "sanskrypt.db")
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, original_image_path, processed_image_path, ocr_confidence, classification, status, upload_date FROM manuscripts ORDER BY id")
+    rows = cursor.fetchall()
+    conn.close()
+
+    samples = []
+    for r in rows:
+        db_id, title, fpath, ppath, conf, clf, status, udate = r
         fname = os.path.basename(fpath)
         base_name = fname.split("_", 1)[1] if "_" in fname else fname
-        if base_name not in unique_map:
-            unique_map[base_name] = fpath
-            
-    samples = []
-    for base_name, fpath in sorted(unique_map.items()):
+        
+        # Verify file existence and properties
+        with open(fpath, "rb") as fp:
+            sha256 = hashlib.sha256(fp.read()).hexdigest()
+        file_sz = os.path.getsize(fpath)
+        
         with Image.open(fpath) as img:
             w, h = img.size
             fmt = img.format
             mode = img.mode
-        
-        # Determine handwritten / printed character based on sample name/image type
-        is_hw = "handwritten" in base_name.lower() or "manu" in base_name.lower() or "whatsapp" in base_name.lower()
+
+        is_hw = "handwritten" in fname.lower() or "manu" in fname.lower() or "whatsapp" in fname.lower()
         samples.append({
-            "id": base_name,
+            "db_id": db_id,
+            "title": title or f"Manuscript #{db_id}",
+            "id": fname,
+            "base_name": base_name,
             "filepath": fpath,
+            "processed_path": ppath,
+            "file_size": file_sz,
+            "sha256": sha256,
             "width": w,
             "height": h,
             "pixels": w * h,
             "format": fmt,
             "mode": mode,
+            "db_classification": clf,
+            "db_status": status,
+            "upload_date": str(udate),
             "type": "Handwritten / Historical Manuscript" if is_hw else "Printed / Modern Typeset"
         })
     return samples
 
 def run_ocr_evaluations(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running OCR Evaluations ---")
+    print("\n--- Running OCR Evaluations on 29 Samples ---", flush=True)
     configure_tesseract_path()
     ocr_records = []
     
-    for s in samples:
+    for idx, s in enumerate(samples, 1):
         fpath = s["filepath"]
         sid = s["id"]
-        print(f"Evaluating OCR on: {sid}...")
+        print(f"[{idx:02d}/29] Evaluating OCR on: {sid}...", flush=True)
         bgr = read_image_safely(fpath)
         variants = generate_preprocessing_variants(bgr)
         
@@ -164,6 +186,7 @@ def run_ocr_evaluations(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         ocr_records.append({
             "sample_id": sid,
+            "db_id": s["db_id"],
             "gemini_vision": {
                 "success": gemini_success,
                 "text": gemini_out or "",
@@ -182,13 +205,13 @@ def run_ocr_evaluations(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return ocr_records
 
 def run_translation_evaluations(samples: List[Dict[str, Any]], ocr_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running Translation Evaluations ---")
+    print("\n--- Running Translation Evaluations on 29 Samples ---", flush=True)
     trans_records = []
     
-    for s, ocr_rec in zip(samples, ocr_records):
+    for idx, (s, ocr_rec) in enumerate(zip(samples, ocr_records), 1):
         sid = s["id"]
         sanskrit_text = ocr_rec["ensemble_tesseract"]["text"]
-        print(f"Evaluating Translation on: {sid}...")
+        print(f"[{idx:02d}/29] Evaluating Translation on: {sid}...", flush=True)
         
         # 1. Tier 1: Gemini Translation
         t0 = time.perf_counter()
@@ -218,7 +241,7 @@ def run_translation_evaluations(samples: List[Dict[str, Any]], ocr_records: List
                 translator = GoogleTranslator(source="sa", target="en")
                 res = translator.translate(clean_s)
                 t_dt = time.perf_counter() - t0
-                if res and "Error" not in res:
+                if res and "Error" not in res and "Server Error" not in res:
                     dt_trans = res.strip()
                     dt_success = True
                 else:
@@ -263,6 +286,7 @@ def run_translation_evaluations(samples: List[Dict[str, Any]], ocr_records: List
 
         trans_records.append({
             "sample_id": sid,
+            "db_id": s["db_id"],
             "sanskrit_text": sanskrit_text,
             "gemini": {
                 "success": gemini_success,
@@ -296,14 +320,14 @@ def run_explanation_and_nlp_evaluations(
     ocr_records: List[Dict[str, Any]],
     trans_records: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    print("\n--- Running Explanation, Keyword & Classification Evaluations ---")
+    print("\n--- Running Explanation, Keyword & Classification Evaluations on 29 Samples ---", flush=True)
     nlp_records = []
     
-    for s, ocr_rec, trans_rec in zip(samples, ocr_records, trans_records):
+    for idx, (s, ocr_rec, trans_rec) in enumerate(zip(samples, ocr_records, trans_records), 1):
         sid = s["id"]
         s_text = ocr_rec["ensemble_tesseract"]["text"]
         t_text = trans_rec["tiered_pipeline"]["text"]
-        print(f"Evaluating NLP on: {sid}...")
+        print(f"[{idx:02d}/29] Evaluating NLP on: {sid}...", flush=True)
         
         # 1. Explanation
         t0 = time.perf_counter()
@@ -323,6 +347,7 @@ def run_explanation_and_nlp_evaluations(
         
         nlp_records.append({
             "sample_id": sid,
+            "db_id": s["db_id"],
             "explanation": exp,
             "explanation_time": t_exp,
             "keywords": kw_str,
@@ -335,13 +360,13 @@ def run_explanation_and_nlp_evaluations(
     return nlp_records
 
 def run_end_to_end_pipeline(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running Full End-to-End Pipeline Timing Benchmark ---")
+    print("\n--- Running Full End-to-End Pipeline Timing Benchmark on 29 Samples ---", flush=True)
     pipeline_records = []
     
-    for s in samples:
+    for idx, s in enumerate(samples, 1):
         fpath = s["filepath"]
         sid = s["id"]
-        print(f"Benchmarking End-to-End on: {sid}...")
+        print(f"[{idx:02d}/29] Benchmarking End-to-End on: {sid}...", flush=True)
         
         # Stage 1: Preprocessing
         t0 = time.perf_counter()
@@ -392,8 +417,11 @@ def run_end_to_end_pipeline(samples: List[Dict[str, Any]]) -> List[Dict[str, Any
             
         pipeline_records.append({
             "sample_id": sid,
+            "db_id": s["db_id"],
             "image_type": s["type"],
             "resolution": f"{s['width']}x{s['height']}",
+            "file_size": s["file_size"],
+            "sha256": s["sha256"],
             "t_preprocessing": t_pre,
             "t_ocr": t_ocr,
             "t_translation": t_trans,
@@ -413,9 +441,9 @@ def run_end_to_end_pipeline(samples: List[Dict[str, Any]]) -> List[Dict[str, Any
     return pipeline_records
 
 def main():
-    print("=== STARTING REPRODUCIBLE SANSKRYPT EVALUATION ===")
-    samples = get_unique_samples()
-    print(f"Loaded {len(samples)} unique manuscript sample types.")
+    print("=== STARTING REPRODUCIBLE SANSKRYPT 29-SAMPLE EVALUATION ===", flush=True)
+    samples = get_all_29_samples()
+    print(f"Loaded {len(samples)} registered manuscript samples from sanskrypt.db.", flush=True)
     
     ocr_records = run_ocr_evaluations(samples)
     trans_records = run_translation_evaluations(samples, ocr_records)
@@ -427,12 +455,16 @@ def main():
     ocr_csv_path = os.path.join(RESULTS_DIR, "ocr_results.csv")
     with open(ocr_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Image_Type", "Resolution", "Tesseract_Ensemble_Text", "Tesseract_Ensemble_Conf", "Tesseract_Ensemble_Time", "Gemini_Vision_Success", "Gemini_Vision_Conf", "Gemini_Vision_Time", "Adaptive_PSM6_Conf", "Adaptive_PSM6_Time", "Grayscale_PSM6_Conf", "Grayscale_PSM6_Time", "Otsu_PSM6_Conf", "Otsu_PSM6_Time", "Adaptive_PSM4_Conf", "Adaptive_PSM4_Time"])
-        for s, o in zip(samples, ocr_records):
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution", "File_Size_Bytes", "SHA256_Prefix", "Tesseract_Ensemble_Text", "Tesseract_Ensemble_Conf", "Tesseract_Ensemble_Time", "Gemini_Vision_Success", "Gemini_Vision_Conf", "Gemini_Vision_Time", "Adaptive_PSM6_Conf", "Adaptive_PSM6_Time", "Grayscale_PSM6_Conf", "Grayscale_PSM6_Time", "Otsu_PSM6_Conf", "Otsu_PSM6_Time", "Adaptive_PSM4_Conf", "Adaptive_PSM4_Time"])
+        for idx, (s, o) in enumerate(zip(samples, ocr_records), 1):
             writer.writerow([
+                idx,
+                s["db_id"],
                 s["id"],
                 s["type"],
                 f"{s['width']}x{s['height']}",
+                s["file_size"],
+                s["sha256"][:12],
                 o["ensemble_tesseract"]["text"].replace("\n", " "),
                 o["ensemble_tesseract"]["conf"],
                 round(o["ensemble_tesseract"]["time"], 4),
@@ -453,9 +485,11 @@ def main():
     trans_csv_path = os.path.join(RESULTS_DIR, "translation_results.csv")
     with open(trans_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Sanskrit_OCR_Text", "Tier_Used", "Final_Translation", "Final_Time", "Gemini_Success", "Gemini_Time", "DeepTranslator_Success", "DeepTranslator_Translation", "DeepTranslator_Time", "FLAN_T5_Success", "FLAN_T5_Translation", "FLAN_T5_Time"])
-        for t in trans_records:
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Sanskrit_OCR_Text", "Tier_Used", "Final_Translation", "Final_Time", "Gemini_Success", "Gemini_Time", "DeepTranslator_Success", "DeepTranslator_Translation", "DeepTranslator_Time", "FLAN_T5_Success", "FLAN_T5_Translation", "FLAN_T5_Time"])
+        for idx, t in enumerate(trans_records, 1):
             writer.writerow([
+                idx,
+                t["db_id"],
                 t["sample_id"],
                 t["sanskrit_text"].replace("\n", " "),
                 t["tiered_pipeline"]["tier_used"],
@@ -475,33 +509,35 @@ def main():
     exp_csv_path = os.path.join(RESULTS_DIR, "explanation_results.csv")
     with open(exp_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Generated_Explanation", "Processing_Time"])
-        for n in nlp_records:
-            writer.writerow([n["sample_id"], n["explanation"].replace("\n", " "), round(n["explanation_time"], 4)])
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Generated_Explanation", "Processing_Time"])
+        for idx, n in enumerate(nlp_records, 1):
+            writer.writerow([idx, n["db_id"], n["sample_id"], n["explanation"].replace("\n", " "), round(n["explanation_time"], 4)])
             
     # 4. Keyword Results CSV
     kw_csv_path = os.path.join(RESULTS_DIR, "keyword_results.csv")
     with open(kw_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Keywords", "Keyword_Count", "Processing_Time"])
-        for n in nlp_records:
-            writer.writerow([n["sample_id"], n["keywords"], n["keyword_count"], round(n["keyword_time"], 4)])
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Keywords", "Keyword_Count", "Processing_Time"])
+        for idx, n in enumerate(nlp_records, 1):
+            writer.writerow([idx, n["db_id"], n["sample_id"], n["keywords"], n["keyword_count"], round(n["keyword_time"], 4)])
             
     # 5. Classification Results CSV
     class_csv_path = os.path.join(RESULTS_DIR, "classification_results.csv")
     with open(class_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Predicted_Domain", "Processing_Time"])
-        for n in nlp_records:
-            writer.writerow([n["sample_id"], n["domain"], round(n["classification_time"], 4)])
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Predicted_Domain", "Processing_Time"])
+        for idx, n in enumerate(nlp_records, 1):
+            writer.writerow([idx, n["db_id"], n["sample_id"], n["domain"], round(n["classification_time"], 4)])
             
     # 6. Pipeline Results CSV
     pipe_csv_path = os.path.join(RESULTS_DIR, "pipeline_results.csv")
     with open(pipe_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_ID", "Image_Type", "Resolution", "T_Preprocessing", "T_OCR", "T_Translation", "T_Explanation", "T_Keywords", "T_Classification", "Total_Time", "Slowest_Stage", "OCR_Confidence", "Domain", "Status", "OCR_Text", "Translation", "Explanation", "Keywords"])
-        for p in pipeline_records:
+        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution", "T_Preprocessing", "T_OCR", "T_Translation", "T_Explanation", "T_Keywords", "T_Classification", "Total_Time", "Slowest_Stage", "OCR_Confidence", "Domain", "Status", "OCR_Text", "Translation", "Explanation", "Keywords"])
+        for idx, p in enumerate(pipeline_records, 1):
             writer.writerow([
+                idx,
+                p["db_id"],
                 p["sample_id"],
                 p["image_type"],
                 p["resolution"],
@@ -533,9 +569,9 @@ def main():
             "pipeline_records": pipeline_records
         }, f, indent=2, ensure_ascii=False)
 
-    print("\n=== EVALUATION RUN COMPLETED SUCCESSFULLY ===")
-    print(f"Results saved to: {RESULTS_DIR}")
-    print(f"Raw data saved to: {RAW_DIR}")
+    print("\n=== 29-SAMPLE EVALUATION RUN COMPLETED SUCCESSFULLY ===", flush=True)
+    print(f"Results saved to: {RESULTS_DIR}", flush=True)
+    print(f"Raw data saved to: {RAW_DIR}", flush=True)
 
 if __name__ == "__main__":
     main()
