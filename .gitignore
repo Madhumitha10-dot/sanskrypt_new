@@ -36,10 +36,7 @@ models/
 # Why: Uploaded manuscript images and preprocessed images are dynamic runtime
 # data and can be private. Keeping them out prevents bloating repo size.
 # ------------------------------------------------------------------------------
-uploads/original/*
-uploads/processed/*
-!uploads/original/.gitkeep
-!uploads/processed/.gitkeep
+
 
 # ------------------------------------------------------------------------------
 # 4. RUNTIME DATABASES & LOCAL STORAGE
