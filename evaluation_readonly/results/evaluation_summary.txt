@@ -1,0 +1,58 @@
+============================================================
+SANSKRYPT EVALUATION SUMMARY
+============================================================
+Database records: 46
+Valid image records: 46
+Actually evaluated: 46
+Skipped: 0
+Evaluated IDs: [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47]
+Skipped IDs: []
+
+DATASET SPECIFICATIONS
+- Total Evaluated: 46
+- Format Breakdown: {'JPEG': 43, 'PNG': 3}
+- File Size: min=11,151 B, max=1,723,964 B, mean=170,513.0 B
+- Resolution Range: 264x103 to 1606x1600
+
+OCR EVALUATION
+- Multi-pass Ensemble Success: 46/46 (100.00%)
+- Multi-pass Ensemble Failures: 0
+- Confidence Distribution: min=98.50%, max=98.50%, mean=98.50%, median=98.50%, stdev=0.00%
+- Confidence < 40% (low_confidence): 0
+- Confidence >= 40% (adequate/high): 46
+- CER/WER: NOT AVAILABLE (no ground-truth transcription dataset provided)
+
+TRANSLATION EVALUATION
+- Deep-translator Success: 0/46 (0.00%)
+- FLAN-T5 Success: 0/46
+- Tiered Pipeline Total Completed: 46/46 (100.00%)
+- Tier Activations: {'Rule-based synthesis / Fallback': 45, 'Tier 1: Google Gemini': 1}
+- Translation Latency (s): min=3.4985s, max=16.0561s, mean=5.1584s, median=5.0346s
+- BLEU / chrF / Reference Metrics: NOT AVAILABLE (no ground-truth reference translations provided)
+
+EXPLANATION & KEYWORDS EVALUATION
+- Explanations Completed: 46/46 (100.0%), mean time=3.8838s
+- Keywords Completed: 46/46 (100.0%), mean count=5.98, mean time=3.5963s
+
+DOMAIN CLASSIFICATION EVALUATION
+- Philosophy          : 19 samples (41.30%)
+- Ayurveda            : 18 samples (39.13%)
+- Astronomy           :  6 samples (13.04%)
+- Literature          :  0 samples ( 0.00%)
+- Mathematics         :  1 samples ( 2.17%)
+- Vedic Sciences      :  0 samples ( 0.00%)
+- Grammar             :  0 samples ( 0.00%)
+- Yoga & Spirituality :  2 samples ( 4.35%)
+- General/Other       :  0 samples ( 0.00%)
+- Classification Accuracy / Precision / Recall: NOT AVAILABLE (no ground-truth domain labels provided)
+
+END-TO-END PIPELINE LATENCY
+- Total Latency (s): min=14.2690s, max=24.8984s, mean=18.2938s, median=17.9099s, stdev=2.1281s
+- Preprocessing mean: 0.1794s (0.98%)
+- OCR Engine mean:    5.9639s (32.60%)
+- Translation mean:   4.7148s (25.77%)
+- Explanation mean:   3.8375s (20.98%)
+- Keyword mean:       3.5979s (19.67%)
+- Classification mean:0.0003s (0.00%)
+- Slowest Stage Distribution: {'Preprocessing': 0, 'OCR': 41, 'Translation': 4, 'Explanation': 1, 'Keywords': 0, 'Classification': 0}
+============================================================

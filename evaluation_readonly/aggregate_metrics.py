@@ -1,5 +1,5 @@
 """
-Aggregates all exact numbers and statistical metrics from the 29-sample raw evaluation data.
+Aggregates all exact numbers and statistical metrics from the raw evaluation data.
 Strictly read-only computations for empirical performance reporting.
 """
 import os
@@ -28,14 +28,22 @@ def load_json_raw():
 
 def run_stats():
     data = load_json_raw()
+    total_db_records = data.get("total_db_records", len(data.get("samples", [])))
+    skipped_records = data.get("skipped_records", [])
     samples = data["samples"]
     ocr = data["ocr_records"]
     trans = data["trans_records"]
     nlp = data["nlp_records"]
     pipe = data["pipeline_records"]
 
+    n = len(samples)
     print("================ 1. DATASET VERIFICATION & SPECS ================")
-    print(f"Total Manuscript Samples Evaluated: {len(samples)}")
+    print(f"Total Database Records: {total_db_records}")
+    print(f"Total Valid Manuscript Samples Evaluated: {n}")
+    print(f"Skipped Records: {len(skipped_records)}")
+    if skipped_records:
+        print(f"Skipped IDs: {[s['db_id'] for s in skipped_records]}")
+
     widths = [s["width"] for s in samples]
     heights = [s["height"] for s in samples]
     pixels = [s["pixels"] for s in samples]
@@ -135,7 +143,7 @@ def run_stats():
     t_tot = [p["total_time"] for p in pipe]
     slowest_counts = {st: sum(1 for p in pipe if p["slowest_stage"] == st) for st in ["Preprocessing", "OCR", "Translation", "Explanation", "Keywords", "Classification"]}
 
-    print(f"End-to-End Pipeline Latency (All 29 Samples):")
+    print(f"End-to-End Pipeline Latency (All {n} Samples):")
     print(f"  Total Latency (s): min={min(t_tot):.4f}s, max={max(t_tot):.4f}s, mean={statistics.mean(t_tot):.4f}s, median={statistics.median(t_tot):.4f}s, stdev={statistics.stdev(t_tot):.4f}s")
     print(f"  Stage-wise Breakdown (Means & Relative Share):")
     print(f"    1. Preprocessing:     {statistics.mean(t_pre):.4f}s ({statistics.mean(t_pre)/statistics.mean(t_tot)*100:5.2f}%)")

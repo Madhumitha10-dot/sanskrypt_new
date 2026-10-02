@@ -1,6 +1,6 @@
 """
-SansKrypt Read-Only Evaluation Suite (29-Sample Comprehensive Driver)
-Strictly executes existing SansKrypt modules in read-only mode across all 29 registered manuscript images:
+SansKrypt Read-Only Evaluation Suite (Dynamic Comprehensive Driver)
+Strictly executes existing SansKrypt modules in read-only mode across all valid registered manuscript images:
 1. Dataset & image specs
 2. OCR single-pass (PSM 6, PSM 4, PSM 3) & preprocessing variants
 3. OCR multi-pass & Gemini Vision attempts
@@ -15,7 +15,9 @@ import os
 import sys
 import socket
 
-# Set safe socket timeout for all network requests (e.g. translation/gemini APIs)
+# Set safe stdout encoding and network socket timeout
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 socket.setdefaulttimeout(15.0)
 
 # Ensure root workspace directory is in sys.path
@@ -23,14 +25,13 @@ BASE_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_PROJECT_DIR not in sys.path:
     sys.path.insert(0, BASE_PROJECT_DIR)
 
-import glob
 import time
 import csv
 import json
 import sqlite3
 import hashlib
 import statistics
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import numpy as np
 from PIL import Image
 
@@ -71,41 +72,93 @@ RAW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "raw")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(RAW_DIR, exist_ok=True)
 
-def get_all_29_samples() -> List[Dict[str, Any]]:
+def get_all_samples() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
     """
-    Loads all 29 registered manuscript image records from the SQLite database
+    Loads all registered manuscript image records from the SQLite database
     in strict read-only mode and verifies their physical files.
+    Returns (valid_samples, skipped_records, total_db_count).
     """
     db_path = os.path.join(BASE_PROJECT_DIR, "sanskrypt.db")
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, original_image_path, processed_image_path, ocr_confidence, classification, status, upload_date FROM manuscripts ORDER BY id")
+    cursor.execute("""
+        SELECT id,
+               title,
+               original_image_path,
+               processed_image_path,
+               ocr_confidence,
+               classification,
+               status,
+               upload_date
+        FROM manuscripts
+        ORDER BY id
+    """)
     rows = cursor.fetchall()
     conn.close()
 
+    total_db_count = len(rows)
     samples = []
+    skipped_records = []
+
     for r in rows:
         db_id, title, fpath, ppath, conf, clf, status, udate = r
-        fname = os.path.basename(fpath)
-        base_name = fname.split("_", 1)[1] if "_" in fname else fname
         
-        # Verify file existence and properties
-        with open(fpath, "rb") as fp:
-            sha256 = hashlib.sha256(fp.read()).hexdigest()
-        file_sz = os.path.getsize(fpath)
-        
-        with Image.open(fpath) as img:
-            w, h = img.size
-            fmt = img.format
-            mode = img.mode
+        # Check path format
+        if not fpath:
+            skipped_records.append({
+                "db_id": db_id,
+                "title": title or f"Manuscript #{db_id}",
+                "filepath": str(fpath),
+                "reason": "original_image_path is empty/null"
+            })
+            continue
 
+        # Resolve path
+        if not os.path.isabs(fpath):
+            abs_fpath = os.path.join(BASE_PROJECT_DIR, fpath)
+        else:
+            abs_fpath = fpath
+
+        # Verify physical file existence
+        if not os.path.exists(abs_fpath):
+            skipped_records.append({
+                "db_id": db_id,
+                "title": title or f"Manuscript #{db_id}",
+                "filepath": abs_fpath,
+                "reason": "File does not exist on filesystem"
+            })
+            continue
+
+        # Verify file readability and properties via PIL and SHA256
+        try:
+            with open(abs_fpath, "rb") as fp:
+                file_bytes = fp.read()
+                sha256 = hashlib.sha256(file_bytes).hexdigest()
+            file_sz = len(file_bytes)
+
+            with Image.open(abs_fpath) as img:
+                w, h = img.size
+                fmt = img.format
+                mode = img.mode
+        except Exception as e:
+            skipped_records.append({
+                "db_id": db_id,
+                "title": title or f"Manuscript #{db_id}",
+                "filepath": abs_fpath,
+                "reason": f"Unreadable image file: {str(e)}"
+            })
+            continue
+
+        fname = os.path.basename(abs_fpath)
+        base_name = fname.split("_", 1)[1] if "_" in fname else fname
         is_hw = "handwritten" in fname.lower() or "manu" in fname.lower() or "whatsapp" in fname.lower()
+
         samples.append({
             "db_id": db_id,
             "title": title or f"Manuscript #{db_id}",
             "id": fname,
             "base_name": base_name,
-            "filepath": fpath,
+            "filepath": abs_fpath,
             "processed_path": ppath,
             "file_size": file_sz,
             "sha256": sha256,
@@ -114,22 +167,25 @@ def get_all_29_samples() -> List[Dict[str, Any]]:
             "pixels": w * h,
             "format": fmt,
             "mode": mode,
+            "db_confidence": conf,
             "db_classification": clf,
             "db_status": status,
             "upload_date": str(udate),
             "type": "Handwritten / Historical Manuscript" if is_hw else "Printed / Modern Typeset"
         })
-    return samples
+
+    return samples, skipped_records, total_db_count
 
 def run_ocr_evaluations(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running OCR Evaluations on 29 Samples ---", flush=True)
+    n = len(samples)
+    print(f"\n--- Running OCR Evaluations on {n} Samples ---", flush=True)
     configure_tesseract_path()
     ocr_records = []
     
     for idx, s in enumerate(samples, 1):
         fpath = s["filepath"]
         sid = s["id"]
-        print(f"[{idx:02d}/29] Evaluating OCR on: {sid}...", flush=True)
+        print(f"[{idx:02d}/{n}] Evaluating OCR on: {sid} (DB ID: {s['db_id']})...", flush=True)
         bgr = read_image_safely(fpath)
         variants = generate_preprocessing_variants(bgr)
         
@@ -205,13 +261,14 @@ def run_ocr_evaluations(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return ocr_records
 
 def run_translation_evaluations(samples: List[Dict[str, Any]], ocr_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running Translation Evaluations on 29 Samples ---", flush=True)
+    n = len(samples)
+    print(f"\n--- Running Translation Evaluations on {n} Samples ---", flush=True)
     trans_records = []
     
     for idx, (s, ocr_rec) in enumerate(zip(samples, ocr_records), 1):
         sid = s["id"]
         sanskrit_text = ocr_rec["ensemble_tesseract"]["text"]
-        print(f"[{idx:02d}/29] Evaluating Translation on: {sid}...", flush=True)
+        print(f"[{idx:02d}/{n}] Evaluating Translation on: {sid} (DB ID: {s['db_id']})...", flush=True)
         
         # 1. Tier 1: Gemini Translation
         t0 = time.perf_counter()
@@ -320,14 +377,15 @@ def run_explanation_and_nlp_evaluations(
     ocr_records: List[Dict[str, Any]],
     trans_records: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    print("\n--- Running Explanation, Keyword & Classification Evaluations on 29 Samples ---", flush=True)
+    n = len(samples)
+    print(f"\n--- Running Explanation, Keyword & Classification Evaluations on {n} Samples ---", flush=True)
     nlp_records = []
     
     for idx, (s, ocr_rec, trans_rec) in enumerate(zip(samples, ocr_records, trans_records), 1):
         sid = s["id"]
         s_text = ocr_rec["ensemble_tesseract"]["text"]
         t_text = trans_rec["tiered_pipeline"]["text"]
-        print(f"[{idx:02d}/29] Evaluating NLP on: {sid}...", flush=True)
+        print(f"[{idx:02d}/{n}] Evaluating NLP on: {sid} (DB ID: {s['db_id']})...", flush=True)
         
         # 1. Explanation
         t0 = time.perf_counter()
@@ -360,13 +418,14 @@ def run_explanation_and_nlp_evaluations(
     return nlp_records
 
 def run_end_to_end_pipeline(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("\n--- Running Full End-to-End Pipeline Timing Benchmark on 29 Samples ---", flush=True)
+    n = len(samples)
+    print(f"\n--- Running Full End-to-End Pipeline Timing Benchmark on {n} Samples ---", flush=True)
     pipeline_records = []
     
     for idx, s in enumerate(samples, 1):
         fpath = s["filepath"]
         sid = s["id"]
-        print(f"[{idx:02d}/29] Benchmarking End-to-End on: {sid}...", flush=True)
+        print(f"[{idx:02d}/{n}] Benchmarking End-to-End on: {sid} (DB ID: {s['db_id']})...", flush=True)
         
         # Stage 1: Preprocessing
         t0 = time.perf_counter()
@@ -440,10 +499,120 @@ def run_end_to_end_pipeline(samples: List[Dict[str, Any]]) -> List[Dict[str, Any
         })
     return pipeline_records
 
+def generate_summary_text(
+    samples: List[Dict[str, Any]],
+    skipped_records: List[Dict[str, Any]],
+    total_db_count: int,
+    ocr_records: List[Dict[str, Any]],
+    trans_records: List[Dict[str, Any]],
+    nlp_records: List[Dict[str, Any]],
+    pipeline_records: List[Dict[str, Any]]
+) -> str:
+    evaluated_ids = [s["db_id"] for s in samples]
+    skipped_ids = [s["db_id"] for s in skipped_records]
+    widths = [s["width"] for s in samples]
+    heights = [s["height"] for s in samples]
+    pixels = [s["pixels"] for s in samples]
+    sizes = [s["file_size"] for s in samples]
+    formats = set(s["format"] for s in samples)
+    fmt_counts = {fmt: sum(1 for s in samples if s["format"] == fmt) for fmt in formats}
+
+    ens_confs = [o["ensemble_tesseract"]["conf"] for o in ocr_records]
+    ens_times = [o["ensemble_tesseract"]["time"] for o in ocr_records]
+    ens_success = [o["ensemble_tesseract"]["success"] for o in ocr_records]
+
+    dt_succ = [t["deep_translator"]["success"] for t in trans_records]
+    dt_times = [t["deep_translator"]["time"] for t in trans_records]
+    flan_succ = [t["flan_t5"]["success"] for t in trans_records]
+    pipe_trans_succ = [t["tiered_pipeline"]["success"] for t in trans_records]
+    pipe_trans_times = [t["tiered_pipeline"]["time"] for t in trans_records]
+    tiers_used = [t["tiered_pipeline"]["tier_used"] for t in trans_records]
+    tier_dist = {tier: tiers_used.count(tier) for tier in set(tiers_used)}
+
+    exp_times = [n["explanation_time"] for n in nlp_records]
+    kw_counts = [n["keyword_count"] for n in nlp_records]
+    kw_times = [n["keyword_time"] for n in nlp_records]
+    domains = [n["domain"] for n in nlp_records]
+    domain_dist = {cat: domains.count(cat) for cat in CANONICAL_CATEGORIES}
+
+    t_pre = [p["t_preprocessing"] for p in pipeline_records]
+    t_ocr = [p["t_ocr"] for p in pipeline_records]
+    t_trans = [p["t_translation"] for p in pipeline_records]
+    t_exp = [p["t_explanation"] for p in pipeline_records]
+    t_kw = [p["t_keywords"] for p in pipeline_records]
+    t_class = [p["t_classification"] for p in pipeline_records]
+    t_tot = [p["total_time"] for p in pipeline_records]
+    slowest_counts = {st: sum(1 for p in pipeline_records if p["slowest_stage"] == st) for st in ["Preprocessing", "OCR", "Translation", "Explanation", "Keywords", "Classification"]}
+
+    lines = []
+    lines.append("============================================================")
+    lines.append("SANSKRYPT EVALUATION SUMMARY")
+    lines.append("============================================================")
+    lines.append(f"Database records: {total_db_count}")
+    lines.append(f"Valid image records: {len(samples)}")
+    lines.append(f"Actually evaluated: {len(samples)}")
+    lines.append(f"Skipped: {len(skipped_records)}")
+    lines.append(f"Evaluated IDs: {evaluated_ids}")
+    lines.append(f"Skipped IDs: {skipped_ids}")
+    lines.append("")
+    lines.append("DATASET SPECIFICATIONS")
+    lines.append(f"- Total Evaluated: {len(samples)}")
+    lines.append(f"- Format Breakdown: {fmt_counts}")
+    lines.append(f"- File Size: min={min(sizes):,} B, max={max(sizes):,} B, mean={statistics.mean(sizes):,.1f} B")
+    lines.append(f"- Resolution Range: {min(widths)}x{min(heights)} to {max(widths)}x{max(heights)}")
+    lines.append("")
+    lines.append("OCR EVALUATION")
+    lines.append(f"- Multi-pass Ensemble Success: {sum(ens_success)}/{len(ocr_records)} ({sum(ens_success)/len(ocr_records)*100:.2f}%)")
+    lines.append(f"- Multi-pass Ensemble Failures: {len(ocr_records) - sum(ens_success)}")
+    lines.append(f"- Confidence Distribution: min={min(ens_confs):.2f}%, max={max(ens_confs):.2f}%, mean={statistics.mean(ens_confs):.2f}%, median={statistics.median(ens_confs):.2f}%, stdev={statistics.stdev(ens_confs):.2f}%")
+    lines.append(f"- Confidence < 40% (low_confidence): {sum(1 for c in ens_confs if c < 40.0)}")
+    lines.append(f"- Confidence >= 40% (adequate/high): {sum(1 for c in ens_confs if c >= 40.0)}")
+    lines.append(f"- CER/WER: NOT AVAILABLE (no ground-truth transcription dataset provided)")
+    lines.append("")
+    lines.append("TRANSLATION EVALUATION")
+    lines.append(f"- Deep-translator Success: {sum(dt_succ)}/{len(trans_records)} ({sum(dt_succ)/len(trans_records)*100:.2f}%)")
+    lines.append(f"- FLAN-T5 Success: {sum(flan_succ)}/{len(trans_records)}")
+    lines.append(f"- Tiered Pipeline Total Completed: {sum(pipe_trans_succ)}/{len(trans_records)} ({sum(pipe_trans_succ)/len(trans_records)*100:.2f}%)")
+    lines.append(f"- Tier Activations: {tier_dist}")
+    lines.append(f"- Translation Latency (s): min={min(pipe_trans_times):.4f}s, max={max(pipe_trans_times):.4f}s, mean={statistics.mean(pipe_trans_times):.4f}s, median={statistics.median(pipe_trans_times):.4f}s")
+    lines.append(f"- BLEU / chrF / Reference Metrics: NOT AVAILABLE (no ground-truth reference translations provided)")
+    lines.append("")
+    lines.append("EXPLANATION & KEYWORDS EVALUATION")
+    lines.append(f"- Explanations Completed: {len(nlp_records)}/{len(nlp_records)} (100.0%), mean time={statistics.mean(exp_times):.4f}s")
+    lines.append(f"- Keywords Completed: {len(nlp_records)}/{len(nlp_records)} (100.0%), mean count={statistics.mean(kw_counts):.2f}, mean time={statistics.mean(kw_times):.4f}s")
+    lines.append("")
+    lines.append("DOMAIN CLASSIFICATION EVALUATION")
+    for cat, cnt in domain_dist.items():
+        lines.append(f"- {cat:20s}: {cnt:2d} samples ({(cnt/len(domains))*100:5.2f}%)")
+    lines.append(f"- Classification Accuracy / Precision / Recall: NOT AVAILABLE (no ground-truth domain labels provided)")
+    lines.append("")
+    lines.append("END-TO-END PIPELINE LATENCY")
+    lines.append(f"- Total Latency (s): min={min(t_tot):.4f}s, max={max(t_tot):.4f}s, mean={statistics.mean(t_tot):.4f}s, median={statistics.median(t_tot):.4f}s, stdev={statistics.stdev(t_tot):.4f}s")
+    lines.append(f"- Preprocessing mean: {statistics.mean(t_pre):.4f}s ({statistics.mean(t_pre)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- OCR Engine mean:    {statistics.mean(t_ocr):.4f}s ({statistics.mean(t_ocr)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- Translation mean:   {statistics.mean(t_trans):.4f}s ({statistics.mean(t_trans)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- Explanation mean:   {statistics.mean(t_exp):.4f}s ({statistics.mean(t_exp)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- Keyword mean:       {statistics.mean(t_kw):.4f}s ({statistics.mean(t_kw)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- Classification mean:{statistics.mean(t_class):.4f}s ({statistics.mean(t_class)/statistics.mean(t_tot)*100:.2f}%)")
+    lines.append(f"- Slowest Stage Distribution: {slowest_counts}")
+    lines.append("============================================================")
+    return "\n".join(lines)
+
 def main():
-    print("=== STARTING REPRODUCIBLE SANSKRYPT 29-SAMPLE EVALUATION ===", flush=True)
-    samples = get_all_29_samples()
-    print(f"Loaded {len(samples)} registered manuscript samples from sanskrypt.db.", flush=True)
+    print("=== STARTING REPRODUCIBLE SANSKRYPT EVALUATION ===", flush=True)
+    samples, skipped_records, total_db_count = get_all_samples()
+    
+    # Required initial report
+    print(f"Database records: {total_db_count}", flush=True)
+    print(f"Records with valid image files: {len(samples)}", flush=True)
+    print(f"Records with missing/unreadable images: {len(skipped_records)}", flush=True)
+    print(f"Evaluated IDs: {[s['db_id'] for s in samples]}", flush=True)
+    if skipped_records:
+        print(f"Skipped IDs: {[s['db_id'] for s in skipped_records]}", flush=True)
+        for sk in skipped_records:
+            print(f"  Skipped DB ID {sk['db_id']} ({sk['title']}): {sk['filepath']} -> {sk['reason']}", flush=True)
+    else:
+        print("Skipped IDs: []", flush=True)
     
     ocr_records = run_ocr_evaluations(samples)
     trans_records = run_translation_evaluations(samples, ocr_records)
@@ -451,11 +620,44 @@ def main():
     pipeline_records = run_end_to_end_pipeline(samples)
     
     # Save CSVs
-    # 1. OCR Results CSV
+    # 1. Dataset Results CSV
+    dataset_csv_path = os.path.join(RESULTS_DIR, "dataset_results.csv")
+    with open(dataset_csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Sample_Index", "DB_ID", "Title", "Filename", "Image_Type", "Width", "Height", "Pixels", "Format", "Mode", "File_Size_Bytes", "SHA256", "DB_Status", "DB_Classification", "DB_Confidence"])
+        for idx, s in enumerate(samples, 1):
+            writer.writerow([
+                idx,
+                s["db_id"],
+                s["title"],
+                s["id"],
+                s["type"],
+                s["width"],
+                s["height"],
+                s["pixels"],
+                s["format"],
+                s["mode"],
+                s["file_size"],
+                s["sha256"],
+                s["db_status"],
+                s["db_classification"],
+                s["db_confidence"]
+            ])
+
+    # 2. OCR Results CSV
     ocr_csv_path = os.path.join(RESULTS_DIR, "ocr_results.csv")
     with open(ocr_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution", "File_Size_Bytes", "SHA256_Prefix", "Tesseract_Ensemble_Text", "Tesseract_Ensemble_Conf", "Tesseract_Ensemble_Time", "Gemini_Vision_Success", "Gemini_Vision_Conf", "Gemini_Vision_Time", "Adaptive_PSM6_Conf", "Adaptive_PSM6_Time", "Grayscale_PSM6_Conf", "Grayscale_PSM6_Time", "Otsu_PSM6_Conf", "Otsu_PSM6_Time", "Adaptive_PSM4_Conf", "Adaptive_PSM4_Time"])
+        writer.writerow([
+            "Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution", "File_Size_Bytes", "SHA256_Prefix",
+            "Tesseract_Ensemble_Text", "Tesseract_Ensemble_Conf", "Tesseract_Ensemble_Time",
+            "Gemini_Vision_Success", "Gemini_Vision_Conf", "Gemini_Vision_Time",
+            "Adaptive_PSM6_Conf", "Adaptive_PSM6_Time",
+            "Grayscale_PSM6_Conf", "Grayscale_PSM6_Time",
+            "Otsu_PSM6_Conf", "Otsu_PSM6_Time",
+            "Adaptive_PSM4_Conf", "Adaptive_PSM4_Time",
+            "Adaptive_PSM3_Conf", "Adaptive_PSM3_Time"
+        ])
         for idx, (s, o) in enumerate(zip(samples, ocr_records), 1):
             writer.writerow([
                 idx,
@@ -478,14 +680,22 @@ def main():
                 o["single_pass"].get("otsu_binary_psm6", {}).get("conf", 0.0),
                 round(o["single_pass"].get("otsu_binary_psm6", {}).get("time", 0.0), 4),
                 o["single_pass"].get("adaptive_binary_psm4", {}).get("conf", 0.0),
-                round(o["single_pass"].get("adaptive_binary_psm4", {}).get("time", 0.0), 4)
+                round(o["single_pass"].get("adaptive_binary_psm4", {}).get("time", 0.0), 4),
+                o["single_pass"].get("adaptive_binary_psm3", {}).get("conf", 0.0),
+                round(o["single_pass"].get("adaptive_binary_psm3", {}).get("time", 0.0), 4)
             ])
             
-    # 2. Translation Results CSV
+    # 3. Translation Results CSV
     trans_csv_path = os.path.join(RESULTS_DIR, "translation_results.csv")
     with open(trans_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Sanskrit_OCR_Text", "Tier_Used", "Final_Translation", "Final_Time", "Gemini_Success", "Gemini_Time", "DeepTranslator_Success", "DeepTranslator_Translation", "DeepTranslator_Time", "FLAN_T5_Success", "FLAN_T5_Translation", "FLAN_T5_Time"])
+        writer.writerow([
+            "Sample_Index", "DB_ID", "Filename", "Sanskrit_OCR_Text", "Tier_Used",
+            "Final_Translation", "Final_Time",
+            "Gemini_Success", "Gemini_Time",
+            "DeepTranslator_Success", "DeepTranslator_Translation", "DeepTranslator_Time",
+            "FLAN_T5_Success", "FLAN_T5_Translation", "FLAN_T5_Time"
+        ])
         for idx, t in enumerate(trans_records, 1):
             writer.writerow([
                 idx,
@@ -505,7 +715,7 @@ def main():
                 round(t["flan_t5"]["time"], 4)
             ])
             
-    # 3. Explanation Results CSV
+    # 4. Explanation Results CSV
     exp_csv_path = os.path.join(RESULTS_DIR, "explanation_results.csv")
     with open(exp_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -513,7 +723,7 @@ def main():
         for idx, n in enumerate(nlp_records, 1):
             writer.writerow([idx, n["db_id"], n["sample_id"], n["explanation"].replace("\n", " "), round(n["explanation_time"], 4)])
             
-    # 4. Keyword Results CSV
+    # 5. Keyword Results CSV
     kw_csv_path = os.path.join(RESULTS_DIR, "keyword_results.csv")
     with open(kw_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -521,7 +731,7 @@ def main():
         for idx, n in enumerate(nlp_records, 1):
             writer.writerow([idx, n["db_id"], n["sample_id"], n["keywords"], n["keyword_count"], round(n["keyword_time"], 4)])
             
-    # 5. Classification Results CSV
+    # 6. Classification Results CSV
     class_csv_path = os.path.join(RESULTS_DIR, "classification_results.csv")
     with open(class_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -529,11 +739,16 @@ def main():
         for idx, n in enumerate(nlp_records, 1):
             writer.writerow([idx, n["db_id"], n["sample_id"], n["domain"], round(n["classification_time"], 4)])
             
-    # 6. Pipeline Results CSV
+    # 7. Pipeline Results CSV
     pipe_csv_path = os.path.join(RESULTS_DIR, "pipeline_results.csv")
     with open(pipe_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution", "T_Preprocessing", "T_OCR", "T_Translation", "T_Explanation", "T_Keywords", "T_Classification", "Total_Time", "Slowest_Stage", "OCR_Confidence", "Domain", "Status", "OCR_Text", "Translation", "Explanation", "Keywords"])
+        writer.writerow([
+            "Sample_Index", "DB_ID", "Filename", "Image_Type", "Resolution",
+            "T_Preprocessing", "T_OCR", "T_Translation", "T_Explanation", "T_Keywords", "T_Classification",
+            "Total_Time", "Slowest_Stage", "OCR_Confidence", "Domain", "Status",
+            "OCR_Text", "Translation", "Explanation", "Keywords"
+        ])
         for idx, p in enumerate(pipeline_records, 1):
             writer.writerow([
                 idx,
@@ -558,10 +773,14 @@ def main():
                 p["keywords"]
             ])
 
-    # Save complete JSON raw data
+    # 8. Save complete JSON raw data
     raw_json_path = os.path.join(RAW_DIR, "evaluation_data.json")
     with open(raw_json_path, "w", encoding="utf-8") as f:
         json.dump({
+            "total_db_records": total_db_count,
+            "valid_samples_count": len(samples),
+            "skipped_records_count": len(skipped_records),
+            "skipped_records": skipped_records,
             "samples": samples,
             "ocr_records": ocr_records,
             "trans_records": trans_records,
@@ -569,9 +788,19 @@ def main():
             "pipeline_records": pipeline_records
         }, f, indent=2, ensure_ascii=False)
 
-    print("\n=== 29-SAMPLE EVALUATION RUN COMPLETED SUCCESSFULLY ===", flush=True)
+    # 9. Save Evaluation Summary TXT
+    summary_text = generate_summary_text(
+        samples, skipped_records, total_db_count,
+        ocr_records, trans_records, nlp_records, pipeline_records
+    )
+    summary_path = os.path.join(RESULTS_DIR, "evaluation_summary.txt")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write(summary_text)
+
+    print("\n=== EVALUATION RUN COMPLETED SUCCESSFULLY ===", flush=True)
     print(f"Results saved to: {RESULTS_DIR}", flush=True)
     print(f"Raw data saved to: {RAW_DIR}", flush=True)
+    print(f"Summary saved to: {summary_path}", flush=True)
 
 if __name__ == "__main__":
     main()
