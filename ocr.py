@@ -123,6 +123,166 @@ def calculate_calibrated_confidence(cleaned_text: str, raw_avg_conf: float) -> f
     return round(float(final_conf), 2)
 
 
+def validate_with_gemini_vision(bgr_image: np.ndarray, api_key: Optional[str] = None) -> Optional[bool]:
+    """
+    Validates uploaded image content using Gemini Vision AI.
+    Returns:
+        True: Sanskrit or Hindi (Devanagari) detected -> ACCEPT
+        False: Other language, blank, photo, non-text, or uncertain -> REJECT
+        None: Gemini unavailable / network error / no key (fall back to local validation)
+    """
+    key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or GEMINI_API_KEY
+    if not key or not HAS_GENAI:
+        return None
+
+    candidate_models = [
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest"
+    ]
+    try:
+        is_success, buffer = cv2.imencode(".jpg", bgr_image)
+        if not is_success:
+            return None
+
+        client = genai.Client(api_key=key)
+        prompt = (
+            "You are a strict script and manuscript content validator for an archival Sanskrit digitization system.\n"
+            "Examine the uploaded image directly and determine the script and language content visible in the image.\n\n"
+            "CRITICAL EVALUATION CRITERIA:\n"
+            "1. SANSKRIT or HINDI (Devanagari): If the image contains visible Devanagari script (Sanskrit verses, shlokas, ancient manuscripts, palm leaf texts, handwritten Devanagari, or Hindi text), respond with: ACCEPT\n"
+            "2. OTHER LANGUAGES: If the image contains text in non-Devanagari scripts (such as English/Latin, Kannada, Tamil, Telugu, Malayalam, Bengali, Gujarati, Punjabi, Urdu, Arabic, Chinese, etc.), respond with: REJECT\n"
+            "3. BLANK / SOLID / NOISE: If the image is blank, white, solid color, or noise with no text, respond with: REJECT\n"
+            "4. NON-TEXT / PHOTOS: If the image is a photograph (landscape, person, animal, object, architecture), diagram, or screenshot without Devanagari text, respond with: REJECT\n"
+            "5. UNCERTAIN: If you are uncertain or cannot clearly confirm Sanskrit or Hindi / Devanagari text, respond with: REJECT\n\n"
+            "STRICT RULES:\n"
+            "- Do NOT hallucinate, invent, or manufacture Sanskrit text.\n"
+            "- Do NOT translate or transliterate text from English or other languages into Sanskrit.\n"
+            "- Do NOT describe the image.\n"
+            "- Answer with ONLY one single uppercase word: ACCEPT or REJECT."
+        )
+
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Part.from_bytes(
+                            data=buffer.tobytes(),
+                            mime_type="image/jpeg"
+                        ),
+                        prompt
+                    ]
+                )
+                if response and response.text:
+                    resp_clean = response.text.strip().upper()
+                    if "ACCEPT" in resp_clean:
+                        logger.info(f"Gemini Vision validation accepted image via {model_name}.")
+                        return True
+                    else:
+                        logger.info(f"Gemini Vision validation rejected image via {model_name} (response: '{resp_clean}').")
+                        return False
+            except Exception as model_err:
+                logger.debug(f"Gemini Vision validation model {model_name} error: {model_err}")
+                continue
+    except Exception as e:
+        logger.warning(f"Gemini Vision validation fallback to local engine: {str(e)}")
+
+    return None
+
+
+def validate_with_local_engine(bgr_image: np.ndarray) -> bool:
+    """
+    Local image inspection engine for blank, non-text, other languages, or uncertain images:
+    - Rejects low-variance / blank / solid color images
+    - Rejects non-Devanagari scripts (Kannada, Tamil, Telugu, English, etc.)
+    - Accepts Sanskrit/Hindi Devanagari manuscript text
+    - Rejects non-text or uncertain content
+    """
+    if bgr_image is None or bgr_image.size == 0:
+        return False
+
+    gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY) if bgr_image.ndim == 3 else bgr_image
+    if gray.shape[0] < 10 or gray.shape[1] < 10:
+        return False
+
+    # Standard deviation / intensity range check for blank / solid / empty images
+    if np.std(gray) < 5.0 or (int(np.max(gray)) - int(np.min(gray))) < 15:
+        return False
+
+    configure_tesseract_path()
+    try:
+        raw_san = pytesseract.image_to_string(gray, lang="san", config="--psm 6")
+    except Exception:
+        raw_san = ""
+    try:
+        raw_eng = pytesseract.image_to_string(gray, lang="eng", config="--psm 6")
+    except Exception:
+        raw_eng = ""
+
+    combined_text = raw_san + " " + raw_eng
+    dev_count = len(re.findall(r"[\u0900-\u097F]", combined_text))
+    other_script_count = len(re.findall(
+        r"[\u0C80-\u0CFF\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0980-\u09FF\u0A80-\u0AFF\u0A00-\u0A7F\u0600-\u06FF]",
+        combined_text
+    ))
+    eng_words = len(re.findall(r"[a-zA-Z]{3,}", raw_eng))
+
+    # Other non-Devanagari scripts detected
+    if other_script_count >= 3 and dev_count == 0:
+        return False
+
+    # English / Latin text detected without Devanagari
+    if eng_words >= 3 and dev_count == 0:
+        return False
+
+    # Devanagari characters detected
+    if dev_count >= 1:
+        return True
+
+    # Non-text / uncertain / blank with no detected Devanagari
+    return False
+
+
+def validate_source_image(
+    image_input: Union[str, np.ndarray, Image.Image],
+    api_key: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Strict input validation gate for SansKrypt manuscript digitizer:
+    1. Inspects the uploaded source image.
+    2. ACCEPT (True, 'Accepted'): Sanskrit or Hindi / Devanagari text detected.
+    3. REJECT (False, 'No Sanskrit text detected.'): Other languages, blank, photos, non-text, or uncertain.
+    """
+    if isinstance(image_input, str):
+        if not os.path.exists(image_input):
+            return False, "No Sanskrit text detected."
+        bgr_image = read_image_safely(image_input)
+    elif isinstance(image_input, np.ndarray):
+        bgr_image = image_input if image_input.ndim == 3 else cv2.cvtColor(image_input, cv2.COLOR_GRAY2BGR)
+    elif isinstance(image_input, Image.Image):
+        bgr_image = cv2.cvtColor(np.array(image_input), cv2.COLOR_RGB2BGR)
+    else:
+        return False, "No Sanskrit text detected."
+
+    # Tier 1: Gemini Vision AI Validation
+    gemini_decision = validate_with_gemini_vision(bgr_image, api_key=api_key)
+    if gemini_decision is not None:
+        if gemini_decision:
+            return True, "Accepted"
+        else:
+            return False, "No Sanskrit text detected."
+
+    # Tier 2: Local Validation Engine Fallback
+    local_decision = validate_with_local_engine(bgr_image)
+    if local_decision:
+        return True, "Accepted"
+    else:
+        return False, "No Sanskrit text detected."
+
+
 def extract_with_gemini_vision(bgr_image: np.ndarray, api_key: Optional[str] = None) -> Optional[Tuple[str, float]]:
     """
     Transcribes ancient, handwritten, or palm leaf Sanskrit manuscript images using Gemini Vision AI.
@@ -147,8 +307,9 @@ def extract_with_gemini_vision(bgr_image: np.ndarray, api_key: Optional[str] = N
         prompt = (
             "You are an expert Sanskrit epigraphist and manuscript digitizer. "
             "Examine this ancient manuscript image (which may contain handwritten Devanagari, palm-leaf script, or aged text). "
-            "Accurately transcribe all Sanskrit text from the image into clean standard Unicode Devanagari script. "
+            "Accurately transcribe all Sanskrit or Hindi text from the image into clean standard Unicode Devanagari script. "
             "Preserve shlokas, verses, line breaks, and danda (। / ॥) punctuation. "
+            "Do NOT invent or hallucinate text. "
             "Provide ONLY the transcribed Sanskrit text in Devanagari without introductory remarks."
         )
 

@@ -62,3 +62,39 @@ def test_extract_text_file_not_found():
     with patch("ocr.extract_with_gemini_vision", return_value=None):
         with pytest.raises(FileNotFoundError):
             extract_text("non_existent_image_file.png")
+
+
+def test_validate_source_image_gemini_accept():
+    """Verifies that Gemini Vision returning True accepts the image."""
+    from ocr import validate_source_image
+    import numpy as np
+    dummy_img = np.ones((100, 100, 3), dtype=np.uint8) * 128
+    with patch("ocr.validate_with_gemini_vision", return_value=True):
+        is_valid, msg = validate_source_image(dummy_img)
+        assert is_valid is True
+        assert msg == "Accepted"
+
+
+def test_validate_source_image_gemini_reject():
+    """Verifies that Gemini Vision returning False rejects the image with exact message."""
+    from ocr import validate_source_image
+    import numpy as np
+    dummy_img = np.ones((100, 100, 3), dtype=np.uint8) * 128
+    with patch("ocr.validate_with_gemini_vision", return_value=False):
+        is_valid, msg = validate_source_image(dummy_img)
+        assert is_valid is False
+        assert msg == "No Sanskrit text detected."
+
+
+def test_validate_source_image_local_blank():
+    """Verifies local engine rejects a solid blank white image."""
+    from ocr import validate_source_image
+    import numpy as np
+    blank = np.full((200, 200, 3), 255, dtype=np.uint8)
+    with patch("ocr.validate_with_gemini_vision", return_value=None):
+        is_valid, msg = validate_source_image(blank)
+        assert is_valid is False
+        assert msg == "No Sanskrit text detected."
+
+
+

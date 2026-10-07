@@ -42,7 +42,8 @@ def test_upload_success_and_low_confidence_flow(client, sample_image_path):
     }
 
     # Mock pipeline functions to run swiftly
-    with patch("app.extract_text", return_value=("अहं ब्रह्मास्मि", 35.0)), \
+    with patch("app.validate_source_image", return_value=(True, "Accepted")), \
+         patch("app.extract_text", return_value=("अहं ब्रह्मास्मि", 35.0)), \
          patch("app.translate_text", return_value="I am the infinite reality / Brahman."), \
          patch("app.generate_explanation", return_value="Mahavakya from Brihadaranyaka Upanishad asserting divine identity."), \
          patch("app.extract_keywords", return_value="Brahman, Upanishad, Identity, Advaita"), \
@@ -51,10 +52,39 @@ def test_upload_success_and_low_confidence_flow(client, sample_image_path):
         response = client.post("/upload", data=data, follow_redirects=True, content_type="multipart/form-data")
         assert response.status_code == 200
         # Should redirect to results page
-        assert b"Low Confidence OCR Scan Detected" in response.data
-        assert b"35" in response.data
+        assert b"Extracted Sanskrit Text" in response.data
         assert b"I am the infinite reality" in response.data
         assert b"Philosophy" in response.data
+
+
+def test_upload_blank_image_rejected(client):
+    """Verifies that uploading a blank/non-Sanskrit image is rejected at the validation gate."""
+    # Create blank image
+    img = Image.new("RGB", (200, 200), color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    data = {
+        "title": "Blank Test Image",
+        "image": (buf, "blank.png")
+    }
+
+    response = client.post("/upload", data=data, follow_redirects=True, content_type="multipart/form-data")
+    assert response.status_code == 200
+    assert b"No Sanskrit text detected." in response.data
+
+
+def test_upload_non_sanskrit_image_rejected(client):
+    """Verifies that an image without Sanskrit/Hindi text is rejected."""
+    with patch("app.validate_source_image", return_value=(False, "No Sanskrit text detected.")):
+        data = {
+            "title": "English Document",
+            "image": (io.BytesIO(b"fake image bytes"), "english.png")
+        }
+        response = client.post("/upload", data=data, follow_redirects=True, content_type="multipart/form-data")
+        assert response.status_code == 200
+        assert b"No Sanskrit text detected." in response.data
 
 
 def test_view_manuscript_not_found(client):
@@ -101,4 +131,7 @@ def test_manuscript_image_serving(client, sample_manuscripts):
     res = client.get(f"/manuscript/{m_id}/image/original")
     assert res.status_code == 200
     assert res.mimetype.startswith("image/")
+
+
+
 

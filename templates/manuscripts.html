@@ -35,7 +35,7 @@
                         Completed
                     </a>
                     <a href="{{ url_for('list_repository', status='low_confidence', classification=current_classification) }}" class="btn btn-sm {% if current_status == 'low_confidence' %}btn-danger text-white fw-bold{% else %}btn-outline-secondary{% endif %}">
-                        Low Confidence
+                        Needs Review
                     </a>
                 </div>
             </div>
@@ -66,13 +66,6 @@
                 <!-- Image Header -->
                 <div style="height: 180px; background: #f8fafc; overflow: hidden; border-top-left-radius: 14px; border-top-right-radius: 14px; border-bottom: 1px solid var(--border-color);" class="position-relative">
                     <img src="{{ url_for('manuscript_image', manuscript_id=m.id, img_type='original') }}" alt="{{ m.title }}" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">
-                    <div class="position-absolute top-0 end-0 p-2">
-                        {% if m.status == 'low_confidence' %}
-                        <span class="badge badge-confidence-low" title="OCR confidence below threshold"><i class="bi bi-exclamation-triangle me-1"></i> Low ({{ m.ocr_confidence|round(1) }}%)</span>
-                        {% else %}
-                        <span class="badge badge-confidence-high"><i class="bi bi-check2-circle me-1"></i> {{ m.ocr_confidence|round(1) }}%</span>
-                        {% endif %}
-                    </div>
                 </div>
 
                 <!-- Card Body -->

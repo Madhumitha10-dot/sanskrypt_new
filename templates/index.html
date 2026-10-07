@@ -46,17 +46,6 @@
                         </div>
                     </div>
 
-                    <!-- Pipeline Info Checklist -->
-                    <div class="p-3 mb-4 rounded bg-light border small">
-                        <div class="fw-semibold text-dark mb-2"><i class="bi bi-gear-wide-connected me-1 text-warning"></i> Automated Pipeline Stages:</div>
-                        <div class="row g-2 text-muted">
-                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> OpenCV Image Preprocessing</div>
-                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Neural Sanskrit OCR Extraction</div>
-                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Sanskrit &rarr; English Translation</div>
-                            <div class="col-6"><i class="bi bi-check2-circle text-success me-1"></i> Context Explanation & Domain Tagging</div>
-                        </div>
-                    </div>
-
                     <!-- Submit Button -->
                     <div class="d-grid">
                         <button type="submit" id="submit-btn" class="btn btn-sanskrypt btn-lg">
@@ -70,44 +59,14 @@
                     <div class="spinner-border text-warning mb-2" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <div class="fw-semibold text-dark">Executing AI Pipeline...</div>
-                    <div class="text-muted small">Enhancing image &rarr; Extracting Sanskrit OCR &rarr; Generating Translation & Classification</div>
+                    <div class="fw-semibold text-dark">Processing Manuscript...</div>
+                    <div class="text-muted small">Preparing image &rarr; Extracting Sanskrit text &rarr; Generating translation &amp; insights</div>
                 </div>
             </div>
         </div>
 
-        <!-- Sidebar / Features & Recent -->
+        <!-- Sidebar / Recent Manuscripts -->
         <div class="col-lg-5">
-            <!-- Pipeline Features -->
-            <div class="card glass-card p-4 mb-4">
-                <h5 class="fw-bold mb-3 text-dark">
-                    <i class="bi bi-stars me-2" style="color: #d97706;"></i> Intelligent OCR & Translation
-                </h5>
-                <ul class="list-unstyled mb-0 d-flex flex-column gap-3 small">
-                    <li class="d-flex">
-                        <i class="bi bi-sliders text-warning fs-5 me-3"></i>
-                        <div>
-                            <strong class="text-dark">OpenCV Enhancement</strong>
-                            <p class="text-muted mb-0">Applies bilateral filtering, contrast normalization (CLAHE), and adaptive binarization to clean aged palm leaves and paper.</p>
-                        </div>
-                    </li>
-                    <li class="d-flex">
-                        <i class="bi bi-speedometer2 text-warning fs-5 me-3"></i>
-                        <div>
-                            <strong class="text-dark">Word-Level Confidence Scoring</strong>
-                            <p class="text-muted mb-0">Analyzes pytesseract bounding boxes. Flags low-confidence scans (< 40%) with proactive review warnings.</p>
-                        </div>
-                    </li>
-                    <li class="d-flex">
-                        <i class="bi bi-diagram-3 text-warning fs-5 me-3"></i>
-                        <div>
-                            <strong class="text-dark">Domain Classification & Keywords</strong>
-                            <p class="text-muted mb-0">Categorizes texts into Philosophy, Ayurveda, Astronomy, Mathematics, Literature, and Vedic sciences.</p>
-                        </div>
-                    </li>
-                </ul>
-            </div>
-
             <!-- Recent Manuscripts -->
             {% if recent_manuscripts %}
             <div class="card glass-card p-4">
@@ -123,11 +82,7 @@
                             <small class="text-muted">{{ m.classification }} &bull; {{ m.upload_date.strftime('%b %d, %Y') }}</small>
                         </div>
                         <div>
-                            {% if m.status == 'low_confidence' %}
-                            <span class="badge badge-confidence-low">Low ({{ m.ocr_confidence|round(1) }}%)</span>
-                            {% else %}
-                            <span class="badge badge-confidence-high">{{ m.ocr_confidence|round(1) }}%</span>
-                            {% endif %}
+                            <span class="btn btn-sm btn-outline-sanskrypt py-0 px-2" style="font-size: 0.75rem;">View</span>
                         </div>
                     </a>
                     {% endfor %}

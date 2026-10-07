@@ -44,20 +44,14 @@
                     </div>
 
                     <div class="row g-3 mb-4">
-                        <!-- Status Filter (Required for low-confidence review) -->
-                        <div class="col-md-6">
-                            <label for="status" class="form-label text-muted small fw-semibold">SCAN STATUS FILTER</label>
+                        <!-- Status Filter -->
+                        <div class="col-12">
+                            <label for="status" class="form-label text-muted small fw-semibold">STATUS FILTER</label>
                             <select class="form-select" id="status" name="status">
                                 <option value="all" selected>All Statuses</option>
-                                <option value="completed">Completed (High Confidence &ge; 40%)</option>
-                                <option value="low_confidence">Low Confidence (< 40% &mdash; Review Needed)</option>
+                                <option value="completed">Completed</option>
+                                <option value="low_confidence">Needs Review</option>
                             </select>
-                        </div>
-
-                        <!-- Min Confidence -->
-                        <div class="col-md-6">
-                            <label for="min_confidence" class="form-label text-muted small fw-semibold">MINIMUM OCR CONFIDENCE (%)</label>
-                            <input type="number" class="form-control" id="min_confidence" name="min_confidence" min="0" max="100" placeholder="e.g. 50">
                         </div>
                     </div>
 

@@ -39,7 +39,7 @@ from config import (
 
 # Pipeline modules
 from preprocessing import preprocess_image
-from ocr import extract_text
+from ocr import extract_text, validate_source_image
 from translation import translate_text
 from explain_classify import (
     generate_explanation,
@@ -146,7 +146,24 @@ def upload_manuscript():
         safe_name = f"{unique_prefix}_{filename}"
         raw_image_path = os.path.join(UPLOAD_FOLDER, safe_name)
         file.save(raw_image_path)
-        logger.info(f"[Stage 1/5] Raw image saved to: {raw_image_path}")
+        # Read optional Gemini API key for handwritten vision OCR and validation
+        api_key = request.form.get("api_key", "").strip() or session.get("gemini_api_key", "")
+        if api_key:
+            session["gemini_api_key"] = api_key
+            os.environ["GEMINI_API_KEY"] = api_key
+
+        # Input Validation Gate: Inspect uploaded source image
+        logger.info("[Validation Gate] Validating source image content...")
+        is_valid, _ = validate_source_image(raw_image_path, api_key=api_key)
+        if not is_valid:
+            logger.warning(f"Upload rejected by input validation gate: {raw_image_path}")
+            flash("No Sanskrit text detected.", "error")
+            try:
+                if os.path.exists(raw_image_path):
+                    os.remove(raw_image_path)
+            except Exception:
+                pass
+            return redirect(url_for("index"))
 
         # Stage 2: OpenCV Image Preprocessing
         logger.info("[Stage 2/5] Running OpenCV preprocessing...")
@@ -157,12 +174,6 @@ def upload_manuscript():
             output_path=target_processed_path
         )
         logger.info(f"[Stage 2/5] Preprocessed image saved to: {processed_image_path}")
-
-        # Read optional Gemini API key for handwritten vision OCR
-        api_key = request.form.get("api_key", "").strip() or session.get("gemini_api_key", "")
-        if api_key:
-            session["gemini_api_key"] = api_key
-            os.environ["GEMINI_API_KEY"] = api_key
 
         # Stage 3: Sanskrit OCR with confidence score
         logger.info("[Stage 3/5] Extracting Sanskrit text and confidence...")
