@@ -39,7 +39,7 @@ from config import (
 
 # Pipeline modules
 from preprocessing import preprocess_image
-from ocr import extract_text, validate_source_image
+from ocr import extract_text, validate_source_image, evaluate_ocr_quality
 from translation import translate_text
 from explain_classify import (
     generate_explanation,
@@ -190,13 +190,14 @@ def upload_manuscript():
             ocr_text = "[No readable Sanskrit text characters could be identified by OCR]"
             ocr_confidence = 0.0
 
-        # Assess low-confidence threshold
-        status = "completed"
-        if ocr_confidence < LOW_CONFIDENCE_THRESHOLD:
-            status = "low_confidence"
+        # Assess OCR quality signals and determine status (completed vs low_confidence/Needs Review)
+        quality_eval = evaluate_ocr_quality(ocr_text, ocr_confidence, image_input=raw_image_path)
+        status = quality_eval["status"]
+        if status == "low_confidence":
+            reasons_summary = "; ".join(quality_eval["reasons"])
             logger.warning(
-                f"Low OCR confidence detected ({ocr_confidence}% < {LOW_CONFIDENCE_THRESHOLD}%). "
-                f"Manuscript tagged as 'low_confidence'."
+                f"Manuscript tagged as 'low_confidence' (Needs Review). "
+                f"Confidence: {ocr_confidence}%. Reasons: {reasons_summary}"
             )
 
         # Stage 4: Sanskrit -> English Translation

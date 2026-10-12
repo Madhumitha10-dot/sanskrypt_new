@@ -12,7 +12,7 @@ import re
 import shutil
 import logging
 import unicodedata
-from typing import Tuple, Union, List, Dict, Optional
+from typing import Tuple, Union, List, Dict, Optional, Any
 import numpy as np
 from PIL import Image
 import pytesseract
@@ -27,11 +27,41 @@ except ImportError:
     HAS_GENAI = False
 
 try:
-    from config import OCR_LANGUAGE, LOW_CONFIDENCE_THRESHOLD, GEMINI_API_KEY
+    from config import (
+        OCR_LANGUAGE,
+        LOW_CONFIDENCE_THRESHOLD,
+        GEMINI_API_KEY,
+        OCR_MIN_TEXT_LENGTH,
+        OCR_MIN_DEVANAGARI_CHARS,
+        OCR_MIN_DEVANAGARI_RATIO,
+        OCR_MAX_NOISE_RATIO,
+        OCR_MAX_REPLACEMENT_RATIO,
+        OCR_MAX_CHAR_REPETITION,
+        OCR_MIN_WORD_TOKEN_RATIO,
+        OCR_MAX_SINGLE_CHAR_RATIO,
+        OCR_MIN_CHARS_PER_LINE,
+        OCR_MIN_LINE_COMPLETENESS_RATIO,
+        OCR_MIN_VISIBLE_LINES_FOR_CHECK,
+        OCR_MAX_CORRUPT_TOKEN_RATIO,
+        OCR_MAX_AVAGRAHA_RATIO
+    )
 except ImportError:
     OCR_LANGUAGE = "san"
     LOW_CONFIDENCE_THRESHOLD = 40.0
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    OCR_MIN_TEXT_LENGTH = 3
+    OCR_MIN_DEVANAGARI_CHARS = 2
+    OCR_MIN_DEVANAGARI_RATIO = 0.50
+    OCR_MAX_NOISE_RATIO = 0.20
+    OCR_MAX_REPLACEMENT_RATIO = 0.10
+    OCR_MAX_CHAR_REPETITION = 4
+    OCR_MIN_WORD_TOKEN_RATIO = 0.35
+    OCR_MAX_SINGLE_CHAR_RATIO = 0.15
+    OCR_MIN_CHARS_PER_LINE = 8.0
+    OCR_MIN_LINE_COMPLETENESS_RATIO = 0.35
+    OCR_MIN_VISIBLE_LINES_FOR_CHECK = 3
+    OCR_MAX_CORRUPT_TOKEN_RATIO = 0.15
+    OCR_MAX_AVAGRAHA_RATIO = 0.05
 
 from preprocessing import generate_preprocessing_variants, read_image_safely
 
@@ -121,6 +151,365 @@ def calculate_calibrated_confidence(cleaned_text: str, raw_avg_conf: float) -> f
     bonus = min(word_count * 2.0, 20.0) + (purity_ratio * 15.0)
     final_conf = min(98.5, base_score + bonus)
     return round(float(final_conf), 2)
+
+
+def estimate_visible_text_lines(image_input: Optional[Union[str, np.ndarray, Image.Image]]) -> int:
+    """
+    Estimates the count of visible text line bands in a manuscript image
+    using adaptive thresholding and horizontal line projection / bounding intervals.
+    Returns 0 if image cannot be processed or has insufficient resolution.
+    """
+    if image_input is None:
+        return 0
+    try:
+        if isinstance(image_input, str):
+            if not os.path.isfile(image_input):
+                return 0
+            bgr = read_image_safely(image_input)
+        elif isinstance(image_input, np.ndarray):
+            bgr = image_input if image_input.ndim == 3 else cv2.cvtColor(image_input, cv2.COLOR_GRAY2BGR)
+        elif isinstance(image_input, Image.Image):
+            bgr = cv2.cvtColor(np.array(image_input), cv2.COLOR_RGB2BGR)
+        else:
+            return 0
+
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape[:2]
+        if h < 40 or w < 40:
+            return 0
+
+        # Contrast enhancement to bring out faint text lines
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+
+        # Adaptive thresholding to segment ink pixels
+        adapt_bin = cv2.adaptiveThreshold(
+            enhanced, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 31, 15
+        )
+
+        # Exclude outer 5% margins to avoid borders/binding artifacts
+        my, mx = int(h * 0.05), int(w * 0.05)
+        cropped_bin = adapt_bin[my:h - my, mx:w - mx]
+        if cropped_bin.size == 0:
+            return 0
+
+        # Horizontal projection profile: ink density per row
+        row_sum = np.sum(cropped_bin > 0, axis=1)
+        mean_row = np.mean(row_sum)
+        max_row = np.max(row_sum)
+        if mean_row <= 0 or max_row <= 0:
+            return 0
+
+        # Require ink rows to stand out from background noise floor.
+        # When an image is mostly empty (low ink ratio), require at least 5% width coverage or 40% of peak ink row
+        # to avoid counting random paper grain or gradient fluctuations as text lines.
+        ink_ratio = np.sum(cropped_bin > 0) / cropped_bin.size
+        cw = cropped_bin.shape[1]
+        if ink_ratio < 0.05:
+            thresh = max(max_row * 0.40, cw * 0.05)
+        else:
+            thresh = max(mean_row * 0.70, max_row * 0.25, cw * 0.03)
+
+        # Active rows with significant ink presence
+        active_rows = row_sum > thresh
+        min_line_h = max(int(h * 0.008), 3)
+        max_line_h = max(int(h * 0.25), 30)
+
+        raw_blocks = []
+        in_block, bstart = False, 0
+        for y, is_act in enumerate(active_rows):
+            if is_act and not in_block:
+                in_block = True
+                bstart = y
+            elif not is_act and in_block:
+                in_block = False
+                lh = y - bstart
+                if lh >= min_line_h:
+                    raw_blocks.append((bstart, y))
+        if in_block and (len(active_rows) - bstart) >= min_line_h:
+            raw_blocks.append((bstart, len(active_rows)))
+
+        # Merge sub-bands separated by small intra-character gaps (e.g. shirorekha, body, matras)
+        max_gap = max(int(h * 0.02), 8)
+        merged = []
+        for s, e in raw_blocks:
+            if not merged:
+                merged.append([s, e])
+            else:
+                prev_s, prev_e = merged[-1]
+                if (s - prev_e) <= max_gap and (e - prev_s) <= max_line_h:
+                    merged[-1][1] = e
+                else:
+                    merged.append([s, e])
+
+        valid_lines = [iv for iv in merged if min_line_h <= (iv[1] - iv[0]) <= max_line_h]
+        return len(valid_lines)
+    except Exception as e:
+        logger.debug(f"Visible line estimation skipped: {e}")
+        return 0
+
+
+def evaluate_ocr_quality(
+    ocr_text: str,
+    ocr_confidence: float,
+    image_input: Optional[Union[str, np.ndarray, Image.Image]] = None,
+    min_confidence: float = LOW_CONFIDENCE_THRESHOLD,
+    min_length: int = OCR_MIN_TEXT_LENGTH,
+    min_devanagari_chars: int = OCR_MIN_DEVANAGARI_CHARS,
+    min_devanagari_ratio: float = OCR_MIN_DEVANAGARI_RATIO,
+    max_noise_ratio: float = OCR_MAX_NOISE_RATIO,
+    max_replacement_ratio: float = OCR_MAX_REPLACEMENT_RATIO,
+    max_char_repetition: int = OCR_MAX_CHAR_REPETITION,
+    min_word_token_ratio: float = OCR_MIN_WORD_TOKEN_RATIO,
+    max_single_char_ratio: float = OCR_MAX_SINGLE_CHAR_RATIO,
+    min_chars_per_line: float = OCR_MIN_CHARS_PER_LINE,
+    min_line_completeness_ratio: float = OCR_MIN_LINE_COMPLETENESS_RATIO,
+    min_visible_lines_for_check: int = OCR_MIN_VISIBLE_LINES_FOR_CHECK,
+    max_corrupt_token_ratio: float = OCR_MAX_CORRUPT_TOKEN_RATIO,
+    max_avagraha_ratio: float = OCR_MAX_AVAGRAHA_RATIO,
+) -> Dict[str, Any]:
+    """
+    Evaluates multi-signal OCR quality and assigns manuscript status:
+    - 'completed': Source image valid, OCR produced non-empty usable Devanagari text
+      passing all configured quality gates, and processing completed successfully.
+    - 'low_confidence' (Displayed as 'Needs Review'): Incomplete, fragmented, noisy,
+      suspicious loops/characters, corrupted tokens, or below confidence threshold.
+
+    Args:
+        ocr_text: Extracted OCR text string.
+        ocr_confidence: Calibrated or raw OCR confidence score (0.0 - 100.0).
+        image_input: Optional source image path or array for visible line completeness estimation.
+        min_confidence: Configurable confidence threshold (default: LOW_CONFIDENCE_THRESHOLD).
+        min_length: Minimum character length for usable text.
+        min_devanagari_chars: Minimum Devanagari characters required.
+        min_devanagari_ratio: Minimum ratio of Devanagari characters among non-whitespace text.
+        max_noise_ratio: Maximum ratio of noise/symbol characters allowed.
+        max_replacement_ratio: Maximum ratio of replacement characters (?, \\ufffd) allowed.
+        max_char_repetition: Maximum identical character repetition allowed.
+        min_word_token_ratio: Minimum ratio of multi-char words.
+        max_single_char_ratio: Maximum allowable isolated single-char token ratio.
+        min_chars_per_line: Minimum expected Devanagari characters per visible line.
+        min_line_completeness_ratio: Minimum ratio of extracted lines to visible lines.
+        min_visible_lines_for_check: Minimum visible lines required to trigger completeness check.
+        max_corrupt_token_ratio: Maximum allowable ratio of corrupted/implausible tokens.
+        max_avagraha_ratio: Maximum allowable ratio of avagraha placeholders.
+
+    Returns:
+        Dict[str, Any]: {
+            'status': 'completed' | 'low_confidence',
+            'is_usable': bool,
+            'reasons': List[str],
+            'metrics': Dict[str, Any]
+        }
+    """
+    reasons: List[str] = []
+
+    # 1. Empty, whitespace-only, or explicit placeholder check
+    if not ocr_text or not ocr_text.strip():
+        reasons.append("OCR output is empty or whitespace-only.")
+        return {
+            "status": "low_confidence",
+            "is_usable": False,
+            "reasons": reasons,
+            "metrics": {
+                "text_length": 0,
+                "devanagari_chars": 0,
+                "devanagari_ratio": 0.0,
+                "noise_ratio": 0.0,
+                "replacement_ratio": 0.0,
+                "word_token_ratio": 0.0,
+                "single_char_ratio": 0.0,
+                "corrupt_token_ratio": 0.0,
+                "confidence": float(ocr_confidence or 0.0),
+                "visible_lines": None,
+                "ocr_lines": 0,
+            }
+        }
+
+    clean_text = ocr_text.strip()
+    if clean_text == "[No readable Sanskrit text characters could be identified by OCR]":
+        reasons.append("No readable Sanskrit text characters could be identified by OCR.")
+        return {
+            "status": "low_confidence",
+            "is_usable": False,
+            "reasons": reasons,
+            "metrics": {
+                "text_length": len(clean_text),
+                "devanagari_chars": 0,
+                "devanagari_ratio": 0.0,
+                "noise_ratio": 0.0,
+                "replacement_ratio": 0.0,
+                "word_token_ratio": 0.0,
+                "single_char_ratio": 0.0,
+                "corrupt_token_ratio": 0.0,
+                "confidence": float(ocr_confidence or 0.0),
+                "visible_lines": None,
+                "ocr_lines": 0,
+            }
+        }
+
+    non_space_chars = [c for c in clean_text if not c.isspace()]
+    total_chars = max(len(non_space_chars), 1)
+
+    # 2. Usable text length & Devanagari character count
+    if len(clean_text) < min_length:
+        reasons.append(f"OCR text is suspiciously short ({len(clean_text)} < {min_length} characters).")
+
+    # Devanagari character ranges (Standard Devanagari, Devanagari Extended, Vedic Extensions)
+    devanagari_chars_list = re.findall(r"[\u0900-\u097F\uA8E0-\uA8FF\u1CD0-\u1CFF]", clean_text)
+    devanagari_count = len(devanagari_chars_list)
+
+    if devanagari_count < min_devanagari_chars:
+        reasons.append(f"Insufficient Devanagari characters ({devanagari_count} < {min_devanagari_chars}).")
+
+    # Base consonants and independent vowels (must contain at least one base letter, not only combining marks)
+    base_letters = len(re.findall(r"[\u0904-\u0939\u0958-\u0961\u0972-\u097F]", clean_text))
+    if devanagari_count > 0 and base_letters < 1:
+        reasons.append("No valid Devanagari base letters detected (output contains only isolated combining marks).")
+
+    # 3. Script consistency
+    devanagari_ratio = devanagari_count / total_chars
+    if devanagari_ratio < min_devanagari_ratio:
+        reasons.append(
+            f"Low Devanagari script consistency ({devanagari_ratio * 100:.1f}% < {min_devanagari_ratio * 100:.1f}%)."
+        )
+
+    # Predominantly Latin/English characters or unwanted English token leakage
+    latin_letters = len(re.findall(r"[a-zA-Z]", clean_text))
+    latin_words = len(re.findall(r"[a-zA-Z]{2,}", clean_text))
+    if latin_letters > devanagari_count:
+        reasons.append(
+            f"Predominantly non-Devanagari characters detected ({latin_letters} Latin letters vs {devanagari_count} Devanagari)."
+        )
+    elif latin_words >= 2 and len(clean_text.split()) >= 6:
+        reasons.append(
+            f"Unintended Latin/English text tokens detected in manuscript OCR output ({latin_words} words)."
+        )
+
+    # 4. Replacement and unrecognized characters
+    replacement_count = clean_text.count("\ufffd") + clean_text.count("?")
+    replacement_ratio = replacement_count / total_chars
+    if replacement_ratio > max_replacement_ratio or (replacement_count >= 3 and replacement_ratio > 0.05):
+        reasons.append(
+            f"Excessive replacement/unknown characters ({replacement_ratio * 100:.1f}% > {max_replacement_ratio * 100:.1f}%)."
+        )
+
+    # 5. Non-text noise and symbol artifacts
+    noise_chars_list = re.findall(r"[\%‰\$\#\*\~`\^\{\}\[\]\<\>\@\&\_\+\=\\\|\/§±×÷¬©®™]", clean_text)
+    noise_count = len(noise_chars_list)
+    noise_ratio = noise_count / total_chars
+    if noise_ratio > max_noise_ratio:
+        reasons.append(
+            f"Excessive noise/symbol artifacts ({noise_ratio * 100:.1f}% > {max_noise_ratio * 100:.1f}%)."
+        )
+
+    # 6. Repeated garbage characters / stutter loops
+    text_no_space = "".join(non_space_chars)
+    if re.search(r"(.)\1{" + str(max(max_char_repetition - 1, 1)) + r",}", text_no_space):
+        reasons.append(f"Suspicious character repetition pattern ({max_char_repetition}+ identical consecutive characters).")
+    elif len(text_no_space) >= 8 and re.search(r"(.{2,4})\1{2,}", text_no_space):
+        reasons.append("Suspicious repetitive loop pattern detected in OCR output.")
+
+    # 7. Word coherence vs token fragmentation check
+    tokens = clean_text.split()
+    tokens_no_danda = [w for w in tokens if w not in ["।", "॥"]]
+    dev_words = [w for w in tokens if len(re.findall(r"[\u0904-\u0939\u0958-\u0961]", w)) >= 2]
+    word_token_ratio = len(dev_words) / len(tokens) if tokens else 0.0
+    if len(tokens) >= 6 and word_token_ratio < min_word_token_ratio:
+        reasons.append(
+            f"Output is excessively fragmented ({len(dev_words)}/{len(tokens)} words, {word_token_ratio * 100:.1f}% < {min_word_token_ratio * 100:.1f}%)."
+        )
+
+    # Isolated single-character token fragmentation check
+    single_char_tokens = [w for w in tokens_no_danda if len(w) == 1]
+    single_char_ratio = len(single_char_tokens) / len(tokens_no_danda) if tokens_no_danda else 0.0
+    if len(tokens_no_danda) >= 6 and single_char_ratio > max_single_char_ratio:
+        reasons.append(
+            f"Output contains excessive single-character fragments ({len(single_char_tokens)}/{len(tokens_no_danda)} tokens, {single_char_ratio * 100:.1f}% > {max_single_char_ratio * 100:.1f}%)."
+        )
+    elif len(tokens_no_danda) >= 3 and single_char_ratio >= 0.40:
+        reasons.append(
+            f"High concentration of isolated single-character fragments ({len(single_char_tokens)}/{len(tokens_no_danda)} tokens, {single_char_ratio * 100:.1f}% >= 40.0%)."
+        )
+
+    # 8. Corrupted / implausible token patterns (internal spliced punctuation, stacked matras, repeated avagrahas)
+    corrupted_tokens = []
+    avagraha_count = clean_text.count("ऽ")
+    for tok in tokens_no_danda:
+        # Punctuation spliced inside Devanagari letters: e.g. लि.दिः or -.=१,५-३.
+        if re.search(r"[\u0900-\u097F]+[\.\,\-\=\+\;\:\*]+[\u0900-\u097F]+", tok):
+            corrupted_tokens.append(tok)
+        # Multiple stacked vowel matras on consonant without virama: e.g. िक, ुो
+        elif re.search(r"[\u093E-\u094C\u0962\u0963]{2,}", tok):
+            corrupted_tokens.append(tok)
+        # Repeated avagrahas inside token: e.g. ऽऽति
+        elif re.search(r"ऽ{2,}", tok):
+            corrupted_tokens.append(tok)
+
+    corrupt_token_ratio = len(corrupted_tokens) / len(tokens_no_danda) if tokens_no_danda else 0.0
+    if len(tokens_no_danda) >= 4 and corrupt_token_ratio > max_corrupt_token_ratio:
+        reasons.append(
+            f"Output contains excessive corrupted or implausible token patterns ({len(corrupted_tokens)}/{len(tokens_no_danda)} tokens, {corrupt_token_ratio * 100:.1f}% > {max_corrupt_token_ratio * 100:.1f}%)."
+        )
+
+    # Excessive avagraha placeholders (faded / corrupted manuscript indicator)
+    if avagraha_count >= 3 and devanagari_count > 0 and (avagraha_count / devanagari_count) > max_avagraha_ratio:
+        reasons.append(
+            f"Excessive avagraha placeholders ({avagraha_count} avagrahas, {avagraha_count / devanagari_count * 100:.1f}% of characters), indicating unreadable or missing manuscript text."
+        )
+
+    # 9. Text completeness check (Visible lines vs extracted OCR text)
+    visible_lines = None
+    ocr_lines_list = [line.strip() for line in clean_text.splitlines() if len(re.findall(r"[\u0900-\u097F]", line)) >= 1]
+    ocr_line_count = len(ocr_lines_list)
+    if image_input is not None:
+        visible_lines = estimate_visible_text_lines(image_input)
+        if visible_lines >= min_visible_lines_for_check:
+            # Case A: Visibly multi-line manuscript (>=4 lines visible) but only 1 extracted line
+            if visible_lines >= 4 and ocr_line_count <= 1:
+                reasons.append(
+                    f"OCR captured only {ocr_line_count} line from a visibly multi-line manuscript (approx. {visible_lines} lines visible)."
+                )
+            # Case B: Extracted character density suspiciously low relative to visible lines
+            elif visible_lines >= 4 and (devanagari_count / visible_lines) < min_chars_per_line:
+                reasons.append(
+                    f"Extracted text is incomplete relative to visible manuscript content "
+                    f"({devanagari_count} characters across {visible_lines} estimated visible lines, avg {devanagari_count / visible_lines:.1f} chars/line < {min_chars_per_line:.1f})."
+                )
+            # Case C: Extracted lines substantially lower than visible lines
+            elif visible_lines >= 5 and ocr_line_count < int(visible_lines * min_line_completeness_ratio):
+                reasons.append(
+                    f"Incomplete OCR text: only {ocr_line_count} lines extracted from approximately {visible_lines} visible lines."
+                )
+
+    # 10. OCR Confidence threshold
+    if ocr_confidence is not None and float(ocr_confidence) < min_confidence:
+        reasons.append(
+            f"OCR confidence ({float(ocr_confidence):.1f}%) is below minimum threshold ({min_confidence:.1f}%)."
+        )
+
+    is_usable = len(reasons) == 0
+    status = "completed" if is_usable else "low_confidence"
+
+    return {
+        "status": status,
+        "is_usable": is_usable,
+        "reasons": reasons,
+        "metrics": {
+            "text_length": len(clean_text),
+            "devanagari_chars": devanagari_count,
+            "devanagari_ratio": round(devanagari_ratio, 3),
+            "noise_ratio": round(noise_ratio, 3),
+            "replacement_ratio": round(replacement_ratio, 3),
+            "word_token_ratio": round(word_token_ratio, 3),
+            "single_char_ratio": round(single_char_ratio, 3),
+            "corrupt_token_ratio": round(corrupt_token_ratio, 3),
+            "confidence": round(float(ocr_confidence or 0.0), 2),
+            "visible_lines": visible_lines,
+            "ocr_lines": ocr_line_count,
+        }
+    }
+
 
 
 def validate_with_gemini_vision(bgr_image: np.ndarray, api_key: Optional[str] = None) -> Optional[bool]:

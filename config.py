@@ -45,6 +45,40 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
 LOW_CONFIDENCE_THRESHOLD = 40.0  # Tunable threshold (0 - 100)
 OCR_LANGUAGE = "san"             # Sanskrit Tesseract traineddata
 
+# OCR Quality Evaluation Thresholds
+# Minimum character length for usable manuscript text after whitespace normalization
+OCR_MIN_TEXT_LENGTH = int(os.getenv("OCR_MIN_TEXT_LENGTH", "3"))
+
+# Minimum count of Devanagari script characters required
+OCR_MIN_DEVANAGARI_CHARS = int(os.getenv("OCR_MIN_DEVANAGARI_CHARS", "2"))
+
+# Minimum proportion of Devanagari characters among non-whitespace text (0.0 - 1.0)
+OCR_MIN_DEVANAGARI_RATIO = float(os.getenv("OCR_MIN_DEVANAGARI_RATIO", "0.50"))
+
+# Maximum allowable ratio of non-text noise and symbol characters (0.0 - 1.0)
+OCR_MAX_NOISE_RATIO = float(os.getenv("OCR_MAX_NOISE_RATIO", "0.20"))
+
+# Maximum allowable ratio of replacement characters (?, \ufffd) (0.0 - 1.0)
+OCR_MAX_REPLACEMENT_RATIO = float(os.getenv("OCR_MAX_REPLACEMENT_RATIO", "0.10"))
+
+# Maximum consecutive identical character repetitions allowed before flagging as garbage loop
+OCR_MAX_CHAR_REPETITION = int(os.getenv("OCR_MAX_CHAR_REPETITION", "4"))
+
+# Minimum proportion of multi-character Devanagari words among all tokens (for text with >= 6 tokens)
+OCR_MIN_WORD_TOKEN_RATIO = float(os.getenv("OCR_MIN_WORD_TOKEN_RATIO", "0.35"))
+
+# Maximum allowable ratio of isolated single-character tokens (excluding dandas) (for text with >= 6 tokens)
+OCR_MAX_SINGLE_CHAR_RATIO = float(os.getenv("OCR_MAX_SINGLE_CHAR_RATIO", "0.15"))
+
+# Text completeness & visible line estimation thresholds
+OCR_MIN_CHARS_PER_LINE = float(os.getenv("OCR_MIN_CHARS_PER_LINE", "8.0"))
+OCR_MIN_LINE_COMPLETENESS_RATIO = float(os.getenv("OCR_MIN_LINE_COMPLETENESS_RATIO", "0.35"))
+OCR_MIN_VISIBLE_LINES_FOR_CHECK = int(os.getenv("OCR_MIN_VISIBLE_LINES_FOR_CHECK", "3"))
+
+# Corrupted / implausible token thresholds
+OCR_MAX_CORRUPT_TOKEN_RATIO = float(os.getenv("OCR_MAX_CORRUPT_TOKEN_RATIO", "0.15"))
+OCR_MAX_AVAGRAHA_RATIO = float(os.getenv("OCR_MAX_AVAGRAHA_RATIO", "0.05"))
+
 # Machine Learning / NLP Models (CPU-Friendly)
 TRANSLATION_MODEL_NAME = os.getenv("TRANSLATION_MODEL", "google/flan-t5-small")
 LLM_MODEL_NAME = os.getenv("LLM_MODEL", "google/flan-t5-small")

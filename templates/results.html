@@ -34,13 +34,28 @@
                     <span><i class="bi bi-calendar3 me-1"></i> Uploaded: {{ manuscript.upload_date.strftime('%B %d, %Y at %I:%M %p') }}</span>
                     <span><i class="bi bi-tag me-1"></i> Domain: <span class="badge badge-category">{{ manuscript.classification }}</span></span>
                     <span>
+                        {% if manuscript.status == 'low_confidence' %}
+                        <i class="bi bi-exclamation-triangle-fill me-1 text-danger"></i> Status:
+                        <span class="badge badge-confidence-low">Needs Review</span>
+                        {% else %}
                         <i class="bi bi-check-circle me-1 text-success"></i> Status:
-                        <span class="badge badge-confidence-high">Processed</span>
+                        <span class="badge badge-confidence-high">Completed</span>
+                        {% endif %}
                     </span>
                 </div>
             </div>
         </div>
     </div>
+
+    {% if manuscript.status == 'low_confidence' %}
+    <!-- Needs Review Alert Banner -->
+    <div class="alert alert-low-confidence d-flex align-items-center mb-4" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5 text-danger"></i>
+        <div>
+            <strong>Needs Review:</strong> OCR extraction detected low confidence or fragmented output for this manuscript. Expert manual verification is recommended.
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Main Content Layout -->
     <div class="row g-4">

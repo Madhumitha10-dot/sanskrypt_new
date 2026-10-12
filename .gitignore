@@ -36,7 +36,9 @@ models/
 # Why: Uploaded manuscript images and preprocessed images are dynamic runtime
 # data and can be private. Keeping them out prevents bloating repo size.
 # ------------------------------------------------------------------------------
-
+# Uploaded manuscript images
+uploads/original/
+uploads/processed/
 
 # ------------------------------------------------------------------------------
 # 4. RUNTIME DATABASES & LOCAL STORAGE
